@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "tradeoptimizer",
+  "version": "${version}",
+  "name": "Trade Optimizer",
+  "description": "Villager trading companion: tracks known villagers, rates trade values, plans professions.",
+  "authors": ["polyvenom"],
+  "contact": {
+    "homepage": "https://github.com/polyvenom",
+    "sources": "https://github.com/polyvenom"
+  },
+  "license": "MIT",
+  "icon": "assets/tradeoptimizer/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.tom.tradeoptimizer.TradeOptimizer"
+    ],
+    "client": [
+      "com.tom.tradeoptimizer.client.TradeOptimizerClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.0",
+    "fabric-api": "*",
+    "minecraft": "~1.21.11",
+    "java": ">=25"
+  }
+}
