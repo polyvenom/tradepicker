@@ -1,44 +1,60 @@
 # Trade Optimizer
 
-A villager trading companion for Minecraft 26.1.2 (Fabric).
+In-merchant trade rating + targeted villager cycling for **Minecraft 26.1.2 (Fabric)**.
 
 ## What it does
 
-- Remembers every villager you've interacted with, even after they unload.
-- Rates each trade Great / Good / Fair / Bad based on baseline price ranges.
-- **Trade Index tab** — search by item or enchantment, jump to coordinates of a villager selling Mending, paper-for-emerald specials, etc.
-- **Profession Planner tab** — totals of assigned villagers per job and a count of vacant workstations near you.
-- Optional **trade cycling helper** for novice villagers (off by default; see below).
+When you right-click a villager and the trade GUI opens, Trade Optimizer:
 
-Default keybind: **V** (rebindable under Controls → Trade Optimizer).
+- Draws a **colored rating chip** on each visible trade (Great / Good / Fair / Bad)
+- On hover, shows a tooltip with the current emerald cost, the lowest price ever seen from that specific villager, and the vanilla baseline range
+- Marks the chip with `*` and a "BEST ever" tooltip when the displayed price matches the lowest you've seen
+- Lets you **cycle the villager's workstation** automatically until a specific trade rolls, then keep re-rolling for a cheaper price
+
+## Keybinds
+
+Default — rebind in **Controls → Trade Optimizer**:
+
+| Key | Action |
+|---|---|
+| **Y** | Start cycling for the currently-selected trade (or re-roll once if already in FOUND state). |
+| **Z** | Cancel an active cycle session. |
+
+## How auto-cycle works
+
+1. Trade with a villager — the mod silently snapshots their offers and history.
+2. Pick the trade row you want.
+3. Press **Y**. The server starts breaking and replacing the workstation block, waiting for the villager to re-roll trades each loop, up to `maxCycleAttempts` from config.
+4. When the target trade appears, the cycle pauses in **FOUND** state — the status banner shows the price.
+5. Press **Y** again to re-roll for a cheaper one. The `BEST` marker tells you when you're at the lowest price ever recorded.
+6. Press **Z** to stop.
+
+The cycle does NOT spoof timing or hide from anti-cheat. It uses normal `destroyBlock` and `setBlockAndUpdate` calls on a configurable cooldown — the same actions the player would do manually. Cycling is **off by default**; set `cyclingEnabled: true` in config to enable.
 
 ## Install
 
-1. Put `tradeoptimizer-x.y.z.jar` in your `mods` folder.
-2. Requires Fabric Loader 0.19.2+ and Fabric API.
-3. For multiplayer, the server must also have this mod installed for tracking and cycling to work.
+1. Drop `tradeoptimizer-x.y.z.jar` into your `mods` folder.
+2. Requires **Fabric Loader 0.19.0+**, **Fabric API**, **Minecraft 26.1.2**, **Java 25**.
+3. Both client AND server need the mod for cycling and rating overlays to work (single-player counts both sides on your machine).
 
-## Build targets
+## Config
 
-- **`master` branch** — Minecraft 1.21.11 + Yarn mappings. This is what builds today; the jar is for 1.21.11 worlds.
-- **`mojang-26.1.2-prep` branch** — full Mojang-mapped rewrite ready for 26.1.2. Blocked: Mojang hasn't published `client_mappings` for 26.1.2 on piston-meta, and Parchment doesn't ship 26.1.2 yet either. When either lands, merge the branch and the build resolves.
-
-## Configuration
-
-Config file: `config/tradeoptimizer.json`
+`config/tradeoptimizer.json`:
 
 | Key | Default | Description |
 |---|---|---|
-| `cyclingEnabled` | `false` | Master switch for the trade-cycling helper. |
-| `cycleCooldownTicks` | `5` | Ticks between break and replace phases of a cycle. |
-| `maxKnownVillagers` | `512` | Hard cap on the tracked-villager index. |
-| `requireOpToCycle` | `true` | Only operators may issue cycle requests. |
+| `cyclingEnabled` | `false` | Master switch for auto-cycling. Off for safety on shared servers. |
+| `cycleCooldownTicks` | `5` | Ticks between break and place phases. |
+| `postPlaceWaitTicks` | `40` | Ticks to wait for the villager to re-roll after placement (2 seconds at default). |
+| `maxCycleAttempts` | `200` | Hard cap on auto-cycle loops before giving up. |
+| `maxKnownVillagers` | `512` | Cap on the persistent villager-history index. |
+| `showMerchantOverlay` | `true` | Toggle rating chips. |
+| `showMerchantTooltips` | `true` | Toggle hover tooltips. |
 
-## A note on trade cycling
+## Compatibility
 
-The cycling helper is a quality-of-life feature for **singleplayer worlds and private servers where you control the rules**. It does NOT spoof timing, hide packets, or attempt to evade anti-cheat. It uses a normal custom mod channel: the server has to have this mod installed, and the admin has to enable `cyclingEnabled` in config. On servers that didn't opt in, the request packet is simply rejected — there is no fallback path.
-
-If you're playing on a public server, ask the owner before turning this on.
+- **Replaces `trade-cycling` (mrbysco's mod)** — uninstall it. Trade Optimizer's auto-cycle covers the same workstation flow and adds target detection + best-price tracking. If both are installed, the mod logs a warning on startup.
+- Compatible with **Iris/Sodium**, **Lithium**, **ModMenu**, **YACL** — uses vanilla rendering primitives only, hooks the merchant screen via mixin which doesn't conflict with rendering or server tick mods.
 
 ## License
 

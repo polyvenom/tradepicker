@@ -1,8 +1,10 @@
 {
-  "key.tradeoptimizer.open": "Open Trade Optimizer",
-  "category.tradeoptimizer": "Trade Optimizer",
+  "key.tradeoptimizer.cycle_for_selected": "Cycle for selected trade",
+  "key.tradeoptimizer.cancel_cycle": "Cancel cycle",
+  "category.tradeoptimizer.main": "Trade Optimizer",
   "tradeoptimizer.rating.great": "Great",
   "tradeoptimizer.rating.good": "Good",
   "tradeoptimizer.rating.fair": "Fair",
-  "tradeoptimizer.rating.bad": "Bad"
+  "tradeoptimizer.rating.bad": "Bad",
+  "tradeoptimizer.rating.unknown": "?"
 }
