@@ -1,5 +1,6 @@
 package com.tom.tradeoptimizer.client.mixin;
 
+import com.tom.tradeoptimizer.client.access.MerchantScreenAccessor;
 import com.tom.tradeoptimizer.client.ui.MerchantOverlay;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;

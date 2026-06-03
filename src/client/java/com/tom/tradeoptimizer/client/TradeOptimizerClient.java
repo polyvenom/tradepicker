@@ -68,7 +68,7 @@ public final class TradeOptimizerClient implements ClientModInitializer {
         }
 
         // The MerchantScreenMixin exposes the currently-highlighted trade index.
-        int selected = ((com.tom.tradeoptimizer.client.mixin.MerchantScreenAccessor) merchant).tradeoptimizer$getShopItem();
+        int selected = ((com.tom.tradeoptimizer.client.access.MerchantScreenAccessor) merchant).tradeoptimizer$getShopItem();
 
         var offers = merchant.getMenu().getOffers();
         if (offers == null || offers.isEmpty() || selected < 0 || selected >= offers.size()) {
