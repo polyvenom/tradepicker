@@ -1,32 +1,32 @@
 package com.tom.tradeoptimizer.trade;
 
-import net.minecraft.component.type.ItemEnchantmentsComponent;
-import net.minecraft.enchantment.Enchantment;
-import net.minecraft.enchantment.EnchantmentHelper;
-import net.minecraft.enchantment.Enchantments;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.village.TradeOffer;
+import net.minecraft.core.Holder;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
+import net.minecraft.world.item.trading.MerchantOffer;
 
 public final class TradeEvaluator {
     private TradeEvaluator() {}
 
-    public static TradeRating rate(TradeOffer offer, int villagerLevel) {
-        ItemStack first = offer.getOriginalFirstBuyItem();
-        ItemStack sell = offer.getSellItem();
+    public static TradeRating rate(MerchantOffer offer, int villagerLevel) {
+        ItemStack first = offer.getBaseCostA();
+        ItemStack sell = offer.getResult();
 
-        if (sell.isOf(Items.ENCHANTED_BOOK)) {
+        if (sell.is(Items.ENCHANTED_BOOK)) {
             return rateEnchantedBook(sell);
         }
 
-        if (sell.isOf(Items.EMERALD)) {
+        if (sell.is(Items.EMERALD)) {
             BaselinePrices.Range range = BaselinePrices.buyRange(first.getItem());
             if (range == null) return TradeRating.UNKNOWN;
             return classify(first.getCount(), range, true);
         }
 
-        if (first.isOf(Items.EMERALD)) {
+        if (first.is(Items.EMERALD)) {
             BaselinePrices.Range range = BaselinePrices.sellRange(sell.getItem());
             if (range == null) return TradeRating.UNKNOWN;
             return classify(sell.getCount(), range, false);
@@ -50,16 +50,16 @@ public final class TradeEvaluator {
     }
 
     private static TradeRating rateEnchantedBook(ItemStack book) {
-        ItemEnchantmentsComponent enchants = EnchantmentHelper.getEnchantments(book);
+        ItemEnchantments enchants = EnchantmentHelper.getEnchantmentsForCrafting(book);
         boolean hasTopTier = false;
         boolean hasUseful = false;
-        for (RegistryEntry<Enchantment> ench : enchants.getEnchantments()) {
+        for (Holder<Enchantment> ench : enchants.keySet()) {
             int level = enchants.getLevel(ench);
-            if (ench.matchesKey(Enchantments.MENDING)) hasTopTier = true;
-            else if (ench.matchesKey(Enchantments.SILK_TOUCH)) hasTopTier = true;
-            else if (ench.matchesKey(Enchantments.FORTUNE) && level >= 3) hasTopTier = true;
-            else if (ench.matchesKey(Enchantments.UNBREAKING) && level >= 3) hasUseful = true;
-            else if (ench.matchesKey(Enchantments.EFFICIENCY) && level >= 4) hasUseful = true;
+            if (ench.is(Enchantments.MENDING)) hasTopTier = true;
+            else if (ench.is(Enchantments.SILK_TOUCH)) hasTopTier = true;
+            else if (ench.is(Enchantments.FORTUNE) && level >= 3) hasTopTier = true;
+            else if (ench.is(Enchantments.UNBREAKING) && level >= 3) hasUseful = true;
+            else if (ench.is(Enchantments.EFFICIENCY) && level >= 4) hasUseful = true;
             else hasUseful = true;
         }
         if (hasTopTier) return TradeRating.GREAT;

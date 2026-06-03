@@ -3,20 +3,20 @@ package com.tom.tradeoptimizer.network;
 import com.tom.tradeoptimizer.trade.TradeRating;
 import com.tom.tradeoptimizer.villager.OfferEntry;
 import com.tom.tradeoptimizer.villager.VillagerEntry;
-import net.minecraft.item.ItemStack;
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-public record VillagerSyncS2C(List<VillagerEntry> villagers) implements CustomPayload {
+public record VillagerSyncS2C(List<VillagerEntry> villagers) implements CustomPacketPayload {
 
-    public static final PacketCodec<RegistryByteBuf, VillagerSyncS2C> CODEC = PacketCodec.of(
+    public static final StreamCodec<RegistryFriendlyByteBuf, VillagerSyncS2C> CODEC = StreamCodec.of(
             VillagerSyncS2C::write,
             VillagerSyncS2C::read
     );
@@ -26,25 +26,25 @@ public record VillagerSyncS2C(List<VillagerEntry> villagers) implements CustomPa
     }
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return NetworkPayloads.SYNC_ID;
     }
 
-    private static void write(VillagerSyncS2C value, RegistryByteBuf buf) {
+    private static void write(RegistryFriendlyByteBuf buf, VillagerSyncS2C value) {
         buf.writeVarInt(value.villagers.size());
         for (VillagerEntry v : value.villagers) writeVillager(buf, v);
     }
 
-    private static VillagerSyncS2C read(RegistryByteBuf buf) {
+    private static VillagerSyncS2C read(RegistryFriendlyByteBuf buf) {
         int n = buf.readVarInt();
         List<VillagerEntry> list = new ArrayList<>(n);
         for (int i = 0; i < n; i++) list.add(readVillager(buf));
         return new VillagerSyncS2C(list);
     }
 
-    private static void writeVillager(RegistryByteBuf buf, VillagerEntry v) {
-        buf.writeUuid(v.id());
-        buf.writeString(v.profession());
+    private static void writeVillager(RegistryFriendlyByteBuf buf, VillagerEntry v) {
+        buf.writeUUID(v.id());
+        buf.writeUtf(v.profession());
         buf.writeVarInt(v.level());
         buf.writeBlockPos(v.pos());
         buf.writeVarLong(v.lastSeenTick());
@@ -52,9 +52,9 @@ public record VillagerSyncS2C(List<VillagerEntry> villagers) implements CustomPa
         for (OfferEntry o : v.offers()) writeOffer(buf, o);
     }
 
-    private static VillagerEntry readVillager(RegistryByteBuf buf) {
-        UUID id = buf.readUuid();
-        String prof = buf.readString();
+    private static VillagerEntry readVillager(RegistryFriendlyByteBuf buf) {
+        UUID id = buf.readUUID();
+        String prof = buf.readUtf();
         int level = buf.readVarInt();
         BlockPos pos = buf.readBlockPos();
         long seen = buf.readVarLong();
@@ -64,20 +64,20 @@ public record VillagerSyncS2C(List<VillagerEntry> villagers) implements CustomPa
         return new VillagerEntry(id, prof, level, pos, seen, offers);
     }
 
-    private static void writeOffer(RegistryByteBuf buf, OfferEntry o) {
-        ItemStack.OPTIONAL_PACKET_CODEC.encode(buf, o.firstBuy());
-        ItemStack.OPTIONAL_PACKET_CODEC.encode(buf, o.secondBuy());
-        ItemStack.OPTIONAL_PACKET_CODEC.encode(buf, o.sell());
+    private static void writeOffer(RegistryFriendlyByteBuf buf, OfferEntry o) {
+        ItemStack.OPTIONAL_STREAM_CODEC.encode(buf, o.firstBuy());
+        ItemStack.OPTIONAL_STREAM_CODEC.encode(buf, o.secondBuy());
+        ItemStack.OPTIONAL_STREAM_CODEC.encode(buf, o.sell());
         buf.writeVarInt(o.uses());
         buf.writeVarInt(o.maxUses());
         buf.writeBoolean(o.disabled());
         buf.writeByte(o.rating().ordinal());
     }
 
-    private static OfferEntry readOffer(RegistryByteBuf buf) {
-        ItemStack first = ItemStack.OPTIONAL_PACKET_CODEC.decode(buf);
-        ItemStack second = ItemStack.OPTIONAL_PACKET_CODEC.decode(buf);
-        ItemStack sell = ItemStack.OPTIONAL_PACKET_CODEC.decode(buf);
+    private static OfferEntry readOffer(RegistryFriendlyByteBuf buf) {
+        ItemStack first = ItemStack.OPTIONAL_STREAM_CODEC.decode(buf);
+        ItemStack second = ItemStack.OPTIONAL_STREAM_CODEC.decode(buf);
+        ItemStack sell = ItemStack.OPTIONAL_STREAM_CODEC.decode(buf);
         int uses = buf.readVarInt();
         int max = buf.readVarInt();
         boolean disabled = buf.readBoolean();

@@ -1,24 +1,24 @@
 package com.tom.tradeoptimizer.network;
 
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
-import net.minecraft.network.packet.CustomPayload;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 
 import java.util.UUID;
 
-public record CycleRequestC2S(UUID villagerId, BlockPos workstation) implements CustomPayload {
+public record CycleRequestC2S(UUID villagerId, BlockPos workstation) implements CustomPacketPayload {
 
-    public static final PacketCodec<RegistryByteBuf, CycleRequestC2S> CODEC = PacketCodec.of(
-            (value, buf) -> {
-                buf.writeUuid(value.villagerId);
+    public static final StreamCodec<RegistryFriendlyByteBuf, CycleRequestC2S> CODEC = StreamCodec.of(
+            (buf, value) -> {
+                buf.writeUUID(value.villagerId);
                 buf.writeBlockPos(value.workstation);
             },
-            buf -> new CycleRequestC2S(buf.readUuid(), buf.readBlockPos())
+            buf -> new CycleRequestC2S(buf.readUUID(), buf.readBlockPos())
     );
 
     @Override
-    public Id<? extends CustomPayload> getId() {
+    public Type<? extends CustomPacketPayload> type() {
         return NetworkPayloads.CYCLE_ID;
     }
 }

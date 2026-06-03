@@ -1,11 +1,11 @@
 package com.tom.tradeoptimizer.client.ui;
 
 import com.tom.tradeoptimizer.villager.VillagerEntry;
-import net.minecraft.block.Block;
-import net.minecraft.block.Blocks;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.world.World;
+import net.minecraft.client.Minecraft;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 
 import java.util.HashSet;
 import java.util.List;
@@ -20,22 +20,22 @@ public final class NearbyScanner {
             Blocks.BREWING_STAND, Blocks.COMPOSTER, Blocks.BARREL, Blocks.LOOM, Blocks.CAULDRON
     );
 
-    public static int countVacantWorkstations(MinecraftClient client, List<VillagerEntry> known) {
-        if (client.player == null || client.world == null) return 0;
-        World world = client.world;
-        BlockPos center = client.player.getBlockPos();
+    public static int countVacantWorkstations(Minecraft client, List<VillagerEntry> known) {
+        if (client.player == null || client.level == null) return 0;
+        Level level = client.level;
+        BlockPos center = client.player.blockPosition();
         int radius = 32;
 
         Set<BlockPos> claimed = new HashSet<>();
         for (VillagerEntry v : known) claimed.add(v.pos());
 
         int vacant = 0;
-        BlockPos.Mutable mp = new BlockPos.Mutable();
+        BlockPos.MutableBlockPos mp = new BlockPos.MutableBlockPos();
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dz = -radius; dz <= radius; dz++) {
                 for (int dy = -8; dy <= 8; dy++) {
                     mp.set(center.getX() + dx, center.getY() + dy, center.getZ() + dz);
-                    Block b = world.getBlockState(mp).getBlock();
+                    Block b = level.getBlockState(mp).getBlock();
                     if (!WORKSTATIONS.contains(b)) continue;
                     if (hasClaimedVillagerWithin(claimed, mp, 6)) continue;
                     vacant++;
@@ -48,7 +48,7 @@ public final class NearbyScanner {
     private static boolean hasClaimedVillagerWithin(Set<BlockPos> claimed, BlockPos pos, int radius) {
         int r2 = radius * radius;
         for (BlockPos c : claimed) {
-            if (c.getSquaredDistance(pos) <= r2) return true;
+            if (c.distSqr(pos) <= r2) return true;
         }
         return false;
     }

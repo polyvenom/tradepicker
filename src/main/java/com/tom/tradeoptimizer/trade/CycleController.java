@@ -3,32 +3,21 @@ package com.tom.tradeoptimizer.trade;
 import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.Blocks;
-import net.minecraft.entity.passive.VillagerEntity;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.text.Text;
-import net.minecraft.util.math.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * Server-side handler for trade-cycle requests.
- *
- * Cycling means: the villager has not yet locked in trades (novice, no experience).
- * Removing and re-placing the workstation block within a tick window forces the
- * villager to re-roll its trade list — the standard vanilla mechanic.
- *
- * Available only on servers that have explicitly installed this mod AND set
- * cyclingEnabled=true in config. No packet spoofing, no timing jitter — just a
- * straightforward server-authoritative break/place sequence on a config cooldown.
- */
 public final class CycleController {
     private CycleController() {}
 
@@ -36,8 +25,8 @@ public final class CycleController {
             UUID villagerId,
             BlockPos workstation,
             Block originalBlock,
-            ServerWorld world,
-            ServerPlayerEntity requester,
+            ServerLevel level,
+            ServerPlayer requester,
             int phase,
             int ticksLeft
     ) {}
@@ -46,54 +35,40 @@ public final class CycleController {
     private static boolean tickHooked = false;
 
     private static final Set<Block> WORKSTATIONS = Set.of(
-            Blocks.LECTERN,
-            Blocks.SMITHING_TABLE,
-            Blocks.STONECUTTER,
-            Blocks.FLETCHING_TABLE,
-            Blocks.GRINDSTONE,
-            Blocks.SMOKER,
-            Blocks.BLAST_FURNACE,
-            Blocks.CARTOGRAPHY_TABLE,
-            Blocks.BREWING_STAND,
-            Blocks.COMPOSTER,
-            Blocks.BARREL,
-            Blocks.LOOM,
-            Blocks.CAULDRON
+            Blocks.LECTERN, Blocks.SMITHING_TABLE, Blocks.STONECUTTER, Blocks.FLETCHING_TABLE,
+            Blocks.GRINDSTONE, Blocks.SMOKER, Blocks.BLAST_FURNACE, Blocks.CARTOGRAPHY_TABLE,
+            Blocks.BREWING_STAND, Blocks.COMPOSTER, Blocks.BARREL, Blocks.LOOM, Blocks.CAULDRON
     );
 
-    public static void handleRequest(ServerPlayerEntity player, UUID villagerId, BlockPos workstation) {
+    public static void handleRequest(ServerPlayer player, UUID villagerId, BlockPos workstation) {
         TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
         if (!cfg.cyclingEnabled) {
-            player.sendMessage(Text.literal("Trade Optimizer: cycling is disabled in config."), false);
+            player.sendSystemMessage(Component.literal("Trade Optimizer: cycling is disabled in config."));
             return;
         }
 
-        // NOTE: server-side runtime op check could be added here once we settle on the 1.21.11
-        // permission API. For now, gating via cyclingEnabled is the single source of truth.
+        ServerLevel level = (ServerLevel) player.level();
+        if (level == null) return;
+        if (!(level.getEntity(villagerId) instanceof Villager villager)) return;
 
-        ServerWorld world = player.getEntityWorld();
-        if (world == null) return;
-        if (!(world.getEntity(villagerId) instanceof VillagerEntity villager)) return;
-
-        if (villager.getExperience() > 0) {
-            player.sendMessage(Text.literal(
-                    "Trade Optimizer: villager already has experience, cycling won't reset trades."), false);
+        if (villager.getVillagerXp() > 0) {
+            player.sendSystemMessage(Component.literal("Trade Optimizer: villager already has experience, cycling won't reset trades."));
             return;
         }
 
-        BlockState state = world.getBlockState(workstation);
+        BlockState state = level.getBlockState(workstation);
         Block block = state.getBlock();
         if (!WORKSTATIONS.contains(block)) {
-            player.sendMessage(Text.literal("Trade Optimizer: that block isn't a valid villager workstation."), false);
+            player.sendSystemMessage(Component.literal("Trade Optimizer: that block isn't a valid villager workstation."));
             return;
         }
 
-        if (player.getBlockPos().getSquaredDistance(workstation.toCenterPos()) > 64.0) {
-            player.sendMessage(Text.literal("Trade Optimizer: workstation is too far away (max 8 blocks)."), false);
+        if (player.blockPosition().distSqr(workstation) > 64.0) {
+            player.sendSystemMessage(Component.literal("Trade Optimizer: workstation is too far away (max 8 blocks)."));
             return;
         }
 
-        QUEUE.add(new PendingCycle(villagerId, workstation, block, world, player, 0, cfg.cycleCooldownTicks));
+        QUEUE.add(new PendingCycle(villagerId, workstation, block, level, player, 0, cfg.cycleCooldownTicks));
         TradeOptimizer.LOGGER.info("Queued cycle for villager {} at {}", villagerId, workstation);
     }
 
@@ -117,24 +92,24 @@ public final class CycleController {
     private static PendingCycle step(PendingCycle p) {
         if (p.ticksLeft > 0) {
             return new PendingCycle(p.villagerId, p.workstation, p.originalBlock,
-                    p.world, p.requester, p.phase, p.ticksLeft - 1);
+                    p.level, p.requester, p.phase, p.ticksLeft - 1);
         }
         int cooldown = TradeOptimizerConfig.get().cycleCooldownTicks;
         switch (p.phase) {
             case 0 -> {
-                BlockState current = p.world.getBlockState(p.workstation);
+                BlockState current = p.level.getBlockState(p.workstation);
                 if (current.getBlock() != p.originalBlock) return null;
-                p.world.breakBlock(p.workstation, false, p.requester, 512);
+                p.level.destroyBlock(p.workstation, false, p.requester);
                 return new PendingCycle(p.villagerId, p.workstation, p.originalBlock,
-                        p.world, p.requester, 1, cooldown);
+                        p.level, p.requester, 1, cooldown);
             }
             case 1 -> {
                 return new PendingCycle(p.villagerId, p.workstation, p.originalBlock,
-                        p.world, p.requester, 2, 0);
+                        p.level, p.requester, 2, 0);
             }
             case 2 -> {
-                p.world.setBlockState(p.workstation, p.originalBlock.getDefaultState());
-                p.requester.sendMessage(Text.literal("Trade Optimizer: cycle complete."), true);
+                p.level.setBlock(p.workstation, p.originalBlock.defaultBlockState(), 3);
+                p.requester.sendSystemMessage(Component.literal("Trade Optimizer: cycle complete."));
                 return null;
             }
         }

@@ -7,14 +7,15 @@ import com.tom.tradeoptimizer.trade.TradeEvaluator;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.entity.passive.VillagerEntity;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.ActionResult;
-import net.minecraft.village.TradeOffer;
-import net.minecraft.village.TradeOfferList;
-import net.minecraft.village.VillagerData;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.npc.villager.VillagerData;
+import net.minecraft.world.item.trading.MerchantOffer;
+import net.minecraft.world.item.trading.MerchantOffers;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,14 +29,14 @@ public final class VillagerInteractionListener {
     private record PendingCapture(UUID id, int ticksLeft) {}
 
     private static final ConcurrentLinkedDeque<PendingCapture> PENDING = new ConcurrentLinkedDeque<>();
-    private static final ConcurrentHashMap<UUID, ServerPlayerEntity> CAPTURE_REQUESTER = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<UUID, ServerPlayer> CAPTURE_REQUESTER = new ConcurrentHashMap<>();
 
     public static void register() {
-        UseEntityCallback.EVENT.register((player, world, hand, entity, hit) -> {
-            if (!(entity instanceof VillagerEntity villager)) return ActionResult.PASS;
-            if (!(player instanceof ServerPlayerEntity sp)) return ActionResult.PASS;
+        UseEntityCallback.EVENT.register((player, level, hand, entity, hitResult) -> {
+            if (!(entity instanceof Villager villager)) return InteractionResult.PASS;
+            if (!(player instanceof ServerPlayer sp)) return InteractionResult.PASS;
             schedule(villager, sp);
-            return ActionResult.PASS;
+            return InteractionResult.PASS;
         });
 
         ServerTickEvents.END_SERVER_TICK.register(server -> {
@@ -52,42 +53,42 @@ public final class VillagerInteractionListener {
         });
     }
 
-    private static void schedule(VillagerEntity villager, ServerPlayerEntity requester) {
-        UUID id = villager.getUuid();
+    private static void schedule(Villager villager, ServerPlayer requester) {
+        UUID id = villager.getUUID();
         CAPTURE_REQUESTER.put(id, requester);
         PENDING.add(new PendingCapture(id, 2));
     }
 
     private static void resolveCapture(MinecraftServer server, PendingCapture p) {
-        ServerPlayerEntity requester = CAPTURE_REQUESTER.remove(p.id());
+        ServerPlayer requester = CAPTURE_REQUESTER.remove(p.id());
         if (requester == null) return;
-        ServerWorld world = requester.getEntityWorld();
-        if (world == null) return;
-        if (!(world.getEntity(p.id()) instanceof VillagerEntity villager)) return;
+        ServerLevel level = (ServerLevel) requester.level();
+        if (level == null) return;
+        if (!(level.getEntity(p.id()) instanceof Villager villager)) return;
 
         VillagerData data = villager.getVillagerData();
-        TradeOfferList offers = villager.getOffers();
+        MerchantOffers offers = villager.getOffers();
         if (offers == null) return;
 
         List<OfferEntry> snap = new ArrayList<>(offers.size());
-        for (TradeOffer offer : offers) {
+        for (MerchantOffer offer : offers) {
             snap.add(OfferEntry.fromTradeOffer(offer, TradeEvaluator.rate(offer, data.level())));
         }
 
         VillagerEntry entry = new VillagerEntry(
-                villager.getUuid(),
-                data.profession().getIdAsString(),
+                villager.getUUID(),
+                BuiltInRegistries.VILLAGER_PROFESSION.getKey(data.profession().value()).toString(),
                 data.level(),
-                villager.getBlockPos(),
-                world.getTime(),
+                villager.blockPosition(),
+                level.getGameTime(),
                 snap
         );
 
-        VillagerRegistryState state = VillagerRegistryState.get(world);
+        VillagerRegistryState state = VillagerRegistryState.get(level);
         state.upsert(entry);
 
         VillagerSyncS2C payload = VillagerSyncS2C.of(state.all());
-        for (ServerPlayerEntity sp : world.getServer().getPlayerManager().getPlayerList()) {
+        for (ServerPlayer sp : level.getServer().getPlayerList().getPlayers()) {
             if (ServerPlayNetworking.canSend(sp, NetworkPayloads.SYNC_ID)) {
                 ServerPlayNetworking.send(sp, payload);
             }

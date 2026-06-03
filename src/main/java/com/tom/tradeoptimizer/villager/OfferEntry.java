@@ -3,8 +3,8 @@ package com.tom.tradeoptimizer.villager;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import com.tom.tradeoptimizer.trade.TradeRating;
-import net.minecraft.item.ItemStack;
-import net.minecraft.village.TradeOffer;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.trading.MerchantOffer;
 
 public record OfferEntry(
         ItemStack firstBuy,
@@ -33,14 +33,14 @@ public record OfferEntry(
         }
     }
 
-    public static OfferEntry fromTradeOffer(TradeOffer offer, TradeRating rating) {
+    public static OfferEntry fromTradeOffer(MerchantOffer offer, TradeRating rating) {
         return new OfferEntry(
-                offer.getOriginalFirstBuyItem().copy(),
-                offer.getDisplayedSecondBuyItem().copy(),
-                offer.getSellItem().copy(),
+                offer.getBaseCostA().copy(),
+                offer.getCostB().copy(),
+                offer.getResult().copy(),
                 offer.getUses(),
                 offer.getMaxUses(),
-                offer.isDisabled(),
+                offer.isOutOfStock(),
                 rating
         );
     }
