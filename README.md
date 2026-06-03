@@ -18,6 +18,11 @@ Default keybind: **V** (rebindable under Controls → Trade Optimizer).
 2. Requires Fabric Loader 0.19.2+ and Fabric API.
 3. For multiplayer, the server must also have this mod installed for tracking and cycling to work.
 
+## Build targets
+
+- **`master` branch** — Minecraft 1.21.11 + Yarn mappings. This is what builds today; the jar is for 1.21.11 worlds.
+- **`mojang-26.1.2-prep` branch** — full Mojang-mapped rewrite ready for 26.1.2. Blocked: Mojang hasn't published `client_mappings` for 26.1.2 on piston-meta, and Parchment doesn't ship 26.1.2 yet either. When either lands, merge the branch and the build resolves.
+
 ## Configuration
 
 Config file: `config/tradeoptimizer.json`
