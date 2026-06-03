@@ -4,8 +4,7 @@
   "package": "com.tom.tradeoptimizer.client.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "MerchantScreenMixin",
-    "MerchantScreenAccessor"
+    "MerchantScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1
