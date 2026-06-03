@@ -67,14 +67,8 @@ public final class TradeOptimizerClient implements ClientModInitializer {
             return;
         }
 
-        // The vanilla selection hint marks the highlighted trade row.
-        int selected = -1;
-        try {
-            // MerchantMenu.getTraderXp/etc don't expose selectionHint publicly,
-            // but selectionHint isn't required — we'll fall back to the first ENCHANTED_BOOK
-            // or use trade index 0.
-            selected = 0;
-        } catch (Exception ignored) {}
+        // The MerchantScreenMixin exposes the currently-highlighted trade index.
+        int selected = ((com.tom.tradeoptimizer.client.mixin.MerchantScreenAccessor) merchant).tradeoptimizer$getShopItem();
 
         var offers = merchant.getMenu().getOffers();
         if (offers == null || offers.isEmpty() || selected < 0 || selected >= offers.size()) {
