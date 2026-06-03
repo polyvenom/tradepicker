@@ -1,26 +1,37 @@
 package com.tom.tradeoptimizer.client.keybind;
 
 import com.mojang.blaze3d.platform.InputConstants;
-import com.tom.tradeoptimizer.client.ui.TradingOptimizerScreen;
-import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import com.tom.tradeoptimizer.TradeOptimizer;
+import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.resources.Identifier;
 import org.lwjgl.glfw.GLFW;
 
+/**
+ * All keybinds registered through Fabric's KeyMappingHelper so users can rebind them
+ * in vanilla Controls. None of these binds default to vanilla-conflicting keys.
+ */
 public final class TradeOptimizerKeybinds {
     private TradeOptimizerKeybinds() {}
 
-    private static boolean wasPressed = false;
+    private static final KeyMapping.Category CATEGORY =
+            KeyMapping.Category.register(Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, "main"));
+
+    public static KeyMapping cycleForSelected;
+    public static KeyMapping cancelCycle;
 
     public static void register() {
-        ClientTickEvents.END_CLIENT_TICK.register(client -> {
-            if (client.player == null || client.screen != null) return;
-            
-            // 26.1.2 passes the encapsulated Window object directly, rather than a raw long pointer.
-            boolean isPressed = InputConstants.isKeyDown(client.getWindow(), GLFW.GLFW_KEY_V);
-            
-            if (isPressed && !wasPressed) {
-                client.setScreen(new TradingOptimizerScreen());
-            }
-            wasPressed = isPressed;
-        });
+        cycleForSelected = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+                "key.tradeoptimizer.cycle_for_selected",
+                InputConstants.Type.KEYSYM,
+                GLFW.GLFW_KEY_Y,
+                CATEGORY
+        ));
+        cancelCycle = KeyMappingHelper.registerKeyMapping(new KeyMapping(
+                "key.tradeoptimizer.cancel_cycle",
+                InputConstants.Type.KEYSYM,
+                GLFW.GLFW_KEY_Z,
+                CATEGORY
+        ));
     }
 }

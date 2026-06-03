@@ -12,10 +12,22 @@ import java.nio.file.Path;
 public final class TradeOptimizerConfig {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
+    /** Master switch for the auto-cycle feature. Default off for safety on shared servers. */
     public boolean cyclingEnabled = false;
+    /** Ticks between break and place phases of a cycle. 5 = quarter second. */
     public int cycleCooldownTicks = 5;
+    /** Ticks to wait after placing the workstation before reading new offers (villager AI re-roll). */
+    public int postPlaceWaitTicks = 40;
+    /** Hard cap on the tracked-villager index per world. */
     public int maxKnownVillagers = 512;
+    /** Only allow operators to start a cycle session. */
     public boolean requireOpToCycle = true;
+    /** Max number of automatic re-cycles before giving up the target search. */
+    public int maxCycleAttempts = 200;
+    /** Show rating chips in the merchant screen. */
+    public boolean showMerchantOverlay = true;
+    /** Show tooltips with best-price + baseline info on merchant trade hover. */
+    public boolean showMerchantTooltips = true;
 
     private static TradeOptimizerConfig INSTANCE;
 

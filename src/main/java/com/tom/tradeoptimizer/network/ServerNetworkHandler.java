@@ -7,8 +7,11 @@ public final class ServerNetworkHandler {
     private ServerNetworkHandler() {}
 
     public static void register() {
-        ServerPlayNetworking.registerGlobalReceiver(NetworkPayloads.CYCLE_ID, (payload, context) -> {
-            CycleController.handleRequest(context.player(), payload.villagerId(), payload.workstation());
-        });
+        ServerPlayNetworking.registerGlobalReceiver(NetworkPayloads.START_CYCLE_TYPE, (payload, context) ->
+                CycleController.startSession(context.player(), payload.villagerId(),
+                        payload.workstation(), payload.target()));
+
+        ServerPlayNetworking.registerGlobalReceiver(NetworkPayloads.STOP_CYCLE_TYPE, (payload, context) ->
+                CycleController.stopSession(context.player(), "Cancelled by player."));
     }
 }

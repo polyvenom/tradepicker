@@ -18,6 +18,6 @@ public final class TradeOptimizer implements ModInitializer {
         ServerNetworkHandler.register();
         VillagerInteractionListener.register();
         CycleController.register();
-        LOGGER.info("Trade Optimizer ready");
+        LOGGER.info("Trade Optimizer initialized");
     }
 }

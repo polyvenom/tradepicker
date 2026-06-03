@@ -3,7 +3,7 @@
   "id": "tradeoptimizer",
   "version": "${version}",
   "name": "Trade Optimizer",
-  "description": "Villager trading companion: tracks known villagers, rates trade values, plans professions.",
+  "description": "In-merchant trade rating overlay + targeted villager cycling. Pick the trade you want, watch the mod cycle the workstation until it shows up, then re-roll for the best price.",
   "authors": ["polyvenom"],
   "contact": {
     "homepage": "https://github.com/polyvenom",
@@ -20,6 +20,12 @@
       "com.tom.tradeoptimizer.client.TradeOptimizerClient"
     ]
   },
+  "mixins": [
+    {
+      "config": "tradeoptimizer.client.mixins.json",
+      "environment": "client"
+    }
+  ],
   "depends": {
     "fabricloader": ">=0.19.0",
     "fabric-api": "*",
