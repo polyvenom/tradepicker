@@ -9,8 +9,13 @@ import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.core.Holder;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.trading.MerchantOffer;
 
 import java.util.ArrayList;
@@ -24,22 +29,38 @@ import java.util.Set;
  * as cards, picks exactly the required number (vanilla = 2), and the server locks those
  * trades in at min cost.
  *
- * For book-trade-rich professions (librarian) the catalogue is long, so this screen
- * scrolls — mouse wheel moves the visible window over the card grid.
+ * Performance notes (audit, 2026-06):
+ *  - Card labels are computed once in init() and cached in a parallel List<String>.
+ *    Previously we were calling getHoverName() + StringBuilder per frame per visible card.
+ *  - Title and status strings are cached. Status is rebuilt only when selection changes.
+ *  - extractRenderState now allocates effectively nothing per frame (just text rendering).
+ *
+ * Visual:
+ *  - For enchanted-book results we extract the stored enchantment + level and print it
+ *    on the right side of the card so each book card is visually distinct.
  */
 public final class TradePickerScreen extends Screen {
 
-    private static final int CARD_WIDTH = 130;
+    private static final int CARD_WIDTH = 140;
     private static final int CARD_HEIGHT = 24;
     private static final int CARD_GAP = 4;
     private static final int COLUMNS = 2;
     private static final int TOP_PAD = 50;
-    private static final int BOTTOM_RESERVED = 60; // room for buttons + hover tooltip
+    private static final int BOTTOM_RESERVED = 60;
 
     private final OpenPickerS2C data;
     private final Set<Integer> selectedIndices = new HashSet<>();
+
+    /** Pre-computed display data per trade — populated in init(), used per frame. */
+    private final List<String> cardLabels = new ArrayList<>();
+    private final List<String> cardTooltips = new ArrayList<>();
+
     private Button confirmBtn;
     private int scrollRow = 0;
+
+    // Cached strings (avoid per-frame String.format allocations)
+    private String titleText = "";
+    private String statusText = "";
 
     public TradePickerScreen(OpenPickerS2C data) {
         super(Component.literal("Trade Picker"));
@@ -59,6 +80,24 @@ public final class TradePickerScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> onClose())
                 .bounds(this.width / 2 + 4, this.height - 30, 80, 20)
                 .build());
+
+        // Pre-compute the display strings once. These never change for a given picker
+        // session, so there's no reason to rebuild them every frame.
+        cardLabels.clear();
+        cardTooltips.clear();
+        for (AvailableTrade trade : data.available()) {
+            cardLabels.add(buildCardLabel(trade.previewOffer()));
+            cardTooltips.add(buildTooltip(trade.previewOffer()));
+        }
+
+        titleText = String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
+                shortProf(data.profession()), levelName(data.level()), data.picksRequired());
+        rebuildStatusText();
+    }
+
+    private void rebuildStatusText() {
+        statusText = String.format(Locale.ROOT, "%d / %d selected",
+                selectedIndices.size(), data.picksRequired());
     }
 
     private void onConfirm() {
@@ -87,53 +126,43 @@ public final class TradePickerScreen extends Screen {
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
         super.extractRenderState(g, mouseX, mouseY, partial);
 
-        // Title row
-        String levelName = levelName(data.level());
-        String profDisplay = shortProf(data.profession());
-        String title = String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
-                profDisplay, levelName, data.picksRequired());
-        g.text(this.font, title, (this.width - this.font.width(title)) / 2, 20, 0xFFFFFFFF);
+        g.text(this.font, titleText, (this.width - this.font.width(titleText)) / 2, 20, 0xFFFFFFFF);
+        g.text(this.font, statusText, (this.width - this.font.width(statusText)) / 2, 34, 0xFFAAAAAA);
 
-        String status = String.format(Locale.ROOT, "%d / %d selected",
-                selectedIndices.size(), data.picksRequired());
-        g.text(this.font, status, (this.width - this.font.width(status)) / 2, 34, 0xFFAAAAAA);
-
-        // Card grid
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
         int visible = visibleRows();
         List<AvailableTrade> trades = data.available();
         int firstIdx = scrollRow * COLUMNS;
         int lastIdx = Math.min(trades.size(), firstIdx + visible * COLUMNS);
 
-        AvailableTrade hovered = null;
+        int hoveredIdx = -1;
         for (int i = firstIdx; i < lastIdx; i++) {
             int slot = i - firstIdx;
             int col = slot % COLUMNS;
             int row = slot / COLUMNS;
             int cx = gridStartX + col * (CARD_WIDTH + CARD_GAP);
             int cy = TOP_PAD + row * (CARD_HEIGHT + CARD_GAP);
-            if (drawCard(g, trades.get(i), cx, cy, i, mouseX, mouseY)) {
-                hovered = trades.get(i);
+            if (drawCard(g, trades.get(i), cardLabels.get(i), cx, cy, i, mouseX, mouseY)) {
+                hoveredIdx = i;
             }
         }
 
-        // Hover tooltip line (above the bottom buttons)
-        if (hovered != null) {
-            String label = describeOffer(hovered.previewOffer());
+        if (hoveredIdx >= 0) {
+            String label = cardTooltips.get(hoveredIdx);
             int tx = (this.width - this.font.width(label)) / 2;
             int ty = this.height - 50;
             g.text(this.font, label, tx, ty, 0xFFFFCC55);
         }
 
-        // Scroll affordance
         if (maxScroll() > 0) {
-            String hint = "Scroll for more (" + (scrollRow + 1) + " / " + (maxScroll() + 1) + ")";
-            g.text(this.font, hint, (this.width - this.font.width(hint)) / 2,
-                    this.height - 50 - (hovered == null ? 0 : 12), 0xFF888888);
+            String hint = "Scroll for more (page " + (scrollRow + 1) + " / " + (maxScroll() + 1) + ")";
+            int hintY = this.height - 50 - (hoveredIdx >= 0 ? 12 : 0);
+            g.text(this.font, hint, (this.width - this.font.width(hint)) / 2, hintY, 0xFF888888);
         }
     }
 
-    private boolean drawCard(GuiGraphicsExtractor g, AvailableTrade trade, int x, int y, int idx, int mouseX, int mouseY) {
+    private boolean drawCard(GuiGraphicsExtractor g, AvailableTrade trade, String enchLabel,
+                             int x, int y, int idx, int mouseX, int mouseY) {
         boolean selected = selectedIndices.contains(idx);
         boolean hovered = mouseX >= x && mouseX < x + CARD_WIDTH && mouseY >= y && mouseY < y + CARD_HEIGHT;
 
@@ -166,10 +195,25 @@ public final class TradePickerScreen extends Screen {
         g.item(r, afterA, iy);
         g.itemDecorations(this.font, r, afterA, iy);
 
+        // Enchantment label on the right side of the card — this is what tells the
+        // player which book they're picking.
+        if (!enchLabel.isEmpty()) {
+            int labelX = afterA + 18;
+            g.text(this.font, enchLabel, labelX, y + 9, 0xFFFFFFAA);
+        }
+
         return hovered;
     }
 
-    private String describeOffer(MerchantOffer o) {
+    /** Card right-side label — only populated for enchanted books. */
+    private static String buildCardLabel(MerchantOffer offer) {
+        ItemStack result = offer.getResult();
+        if (!result.is(Items.ENCHANTED_BOOK)) return "";
+        return enchantmentDisplay(result);
+    }
+
+    /** Full hover-line description. */
+    private static String buildTooltip(MerchantOffer o) {
         StringBuilder sb = new StringBuilder();
         sb.append(o.getBaseCostA().getCount()).append("x ")
                 .append(o.getBaseCostA().getHoverName().getString());
@@ -177,9 +221,51 @@ public final class TradePickerScreen extends Screen {
             sb.append(" + ").append(o.getCostB().getCount()).append("x ")
                     .append(o.getCostB().getHoverName().getString());
         }
-        sb.append("  →  ").append(o.getResult().getCount()).append("x ")
-                .append(o.getResult().getHoverName().getString());
+        sb.append("  →  ").append(o.getResult().getCount()).append("x ");
+
+        ItemStack r = o.getResult();
+        if (r.is(Items.ENCHANTED_BOOK)) {
+            String ench = enchantmentDisplay(r);
+            sb.append(ench.isEmpty() ? "Enchanted Book" : ench + " Book");
+        } else {
+            sb.append(r.getHoverName().getString());
+        }
         return sb.toString();
+    }
+
+    /** Pull the first stored enchantment off an item and format as "Name [Roman]". */
+    private static String enchantmentDisplay(ItemStack stack) {
+        ItemEnchantments enchants = stack.get(DataComponents.STORED_ENCHANTMENTS);
+        if (enchants == null || enchants.isEmpty()) return "";
+        Holder<Enchantment> ench = enchants.keySet().iterator().next();
+        int level = enchants.getLevel(ench);
+        String pathStr = ench.unwrapKey().map(k -> k.identifier().getPath()).orElse("enchant");
+        String base = capitalize(pathStr.replace('_', ' '));
+        return level > 1 ? base + " " + roman(level) : base;
+    }
+
+    private static String capitalize(String s) {
+        if (s.isEmpty()) return s;
+        StringBuilder sb = new StringBuilder(s.length());
+        boolean cap = true;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (cap && Character.isLetter(c)) {
+                sb.append(Character.toUpperCase(c));
+                cap = false;
+            } else {
+                sb.append(c);
+            }
+            if (c == ' ') cap = true;
+        }
+        return sb.toString();
+    }
+
+    private static String roman(int n) {
+        return switch (n) {
+            case 1 -> "I"; case 2 -> "II"; case 3 -> "III"; case 4 -> "IV"; case 5 -> "V";
+            default -> String.valueOf(n);
+        };
     }
 
     @Override
@@ -223,6 +309,7 @@ public final class TradePickerScreen extends Screen {
             selectedIndices.add(idx);
         }
         confirmBtn.active = (selectedIndices.size() == data.picksRequired());
+        rebuildStatusText();
     }
 
     @Override
