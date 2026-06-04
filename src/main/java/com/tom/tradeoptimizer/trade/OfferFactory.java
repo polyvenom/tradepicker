@@ -7,12 +7,15 @@ import net.minecraft.core.HolderSet;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.context.ContextKeySet;
+import net.minecraft.util.Unit;
+import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.TradeSet;
 import net.minecraft.world.item.trading.VillagerTrade;
 import net.minecraft.world.level.storage.loot.LootContext;
 import net.minecraft.world.level.storage.loot.LootParams;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,17 +23,20 @@ import java.util.Optional;
 
 /**
  * Server-side utility: enumerate the trade pool for a (profession, level) pair and
- * produce min-cost MerchantOffers. Built on top of vanilla's VillagerTrade registry —
- * we don't define new trades, we just let the player pick from the existing ones.
+ * produce min-cost MerchantOffers.
+ *
+ * The LootContext we build matches vanilla's exactly (mirrors AbstractVillager
+ * .addOffersFromTradeSet), so enchant_randomly + additional_cost_component work
+ * properly — without ORIGIN/THIS_ENTITY/ADDITIONAL_COST_COMPONENT_ALLOWED + the
+ * VILLAGER_TRADE param set, enchanted-book trades silently become null.
+ *
+ * We swap in MinRandomSource at the last step so all NumberProvider rolls land at min.
  */
 public final class OfferFactory {
     private OfferFactory() {}
 
-    /** Empty context-key set — VillagerTrade.getOffer doesn't require entity params. */
-    private static final ContextKeySet EMPTY_KEY_SET = new ContextKeySet.Builder().build();
-
     /** Enumerate all trades available at this level of this trade set. */
-    public static List<AvailableTrade> enumerate(ServerLevel level, ResourceKey<TradeSet> tradeSetKey) {
+    public static List<AvailableTrade> enumerate(ServerLevel level, Villager villager, ResourceKey<TradeSet> tradeSetKey) {
         List<AvailableTrade> out = new ArrayList<>();
         HolderLookup.Provider registries = level.registryAccess();
 
@@ -44,18 +50,14 @@ public final class OfferFactory {
         TradeSet tradeSet = setRef.get().value();
         HolderSet<VillagerTrade> trades = tradeSet.getTrades();
 
-        LootContext ctx = buildMinContext(level);
+        LootContext ctx = buildMinContext(level, villager, tradeSet);
 
         for (Holder<VillagerTrade> holder : trades) {
             Optional<ResourceKey<VillagerTrade>> keyOpt = holder.unwrapKey();
             if (keyOpt.isEmpty()) continue;
             try {
                 MerchantOffer preview = holder.value().getOffer(ctx);
-                if (preview == null) {
-                    // Vanilla trades can legitimately return null (e.g. dyed-armor with no valid
-                    // color picked, map-trade with no nearby structure). Skip them.
-                    continue;
-                }
+                if (preview == null) continue;
                 out.add(new AvailableTrade(new TradeKey(keyOpt.get().identifier()), preview));
             } catch (Exception e) {
                 TradeOptimizer.LOGGER.warn("Failed to generate preview for trade {}: {}",
@@ -66,14 +68,16 @@ public final class OfferFactory {
     }
 
     /** Generate a fresh min-cost MerchantOffer for a single TradeKey. */
-    public static Optional<MerchantOffer> generate(ServerLevel level, TradeKey key) {
+    public static Optional<MerchantOffer> generate(ServerLevel level, Villager villager, TradeKey key) {
         HolderLookup.Provider registries = level.registryAccess();
         Optional<Holder.Reference<VillagerTrade>> ref =
                 registries.lookupOrThrow(Registries.VILLAGER_TRADE).get(key.asResourceKey());
         if (ref.isEmpty()) return Optional.empty();
-        LootContext ctx = buildMinContext(level);
+        // We don't have a TradeSet here, so pass null for the random sequence Optional.
+        LootContext ctx = buildMinContext(level, villager, null);
         try {
-            return Optional.of(ref.get().value().getOffer(ctx));
+            MerchantOffer offer = ref.get().value().getOffer(ctx);
+            return Optional.ofNullable(offer);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.warn("Failed to generate offer for trade {}: {}",
                     key.id(), e.getMessage());
@@ -81,10 +85,19 @@ public final class OfferFactory {
         }
     }
 
-    private static LootContext buildMinContext(ServerLevel level) {
-        LootParams params = new LootParams.Builder(level).create(EMPTY_KEY_SET);
+    private static LootContext buildMinContext(ServerLevel level, Villager villager, TradeSet tradeSet) {
+        LootParams params = new LootParams.Builder(level)
+                .withParameter(LootContextParams.ORIGIN, villager.position())
+                .withParameter(LootContextParams.THIS_ENTITY, villager)
+                .withParameter(LootContextParams.ADDITIONAL_COST_COMPONENT_ALLOWED, Unit.INSTANCE)
+                .create(LootContextParamSets.VILLAGER_TRADE);
+
+        Optional<net.minecraft.resources.Identifier> randomSeq = tradeSet != null
+                ? tradeSet.randomSequence()
+                : Optional.empty();
+
         return new LootContext.Builder(params)
                 .withOptionalRandomSource(MinRandomSource.INSTANCE)
-                .create(Optional.empty());
+                .create(randomSeq);
     }
 }

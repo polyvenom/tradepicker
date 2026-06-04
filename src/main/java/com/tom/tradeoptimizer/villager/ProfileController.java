@@ -28,22 +28,19 @@ import java.util.UUID;
 /**
  * Server-side orchestrator for the picker flow.
  *
- * On villager interaction:
- *   - If current level has no picks yet: send picker, cancel vanilla merchant open
- *   - Else: ensure villager.getOffers() match the picks, allow vanilla flow
- *
- * On picker submit:
- *   - Save picks, regenerate offers, ask player to right-click again
- *
- * On reset:
- *   - Wipe profile, drop villager back to Novice, clear offers
+ * Three cases on first right-click:
+ *   1. Fresh villager (no profile, no existing offers): open picker for level 1.
+ *   2. Pre-existing villager with vanilla offers (no profile, has offers): import
+ *      those offers as "legacy" per level so the player keeps what they already had.
+ *      No picker unless they level up later.
+ *   3. Villager with profile: ensure live offers match (picks + legacy combined),
+ *      open picker only if the current level has neither picks nor legacy.
  */
 public final class ProfileController {
     private ProfileController() {}
 
     /**
-     * Called when a player right-clicks a villager.
-     * @return true if vanilla interaction should proceed; false to cancel.
+     * @return true if vanilla interaction should proceed; false to cancel and show picker.
      */
     public static boolean onInteract(ServerPlayer player, Villager villager) {
         ServerLevel level = player.level();
@@ -58,41 +55,61 @@ public final class ProfileController {
         }
 
         VillagerProfileState state = VillagerProfileState.get(level);
-        VillagerProfile profile = state.getOrCreate(villager.getUUID(), profName);
+        VillagerProfile profile = state.get(villager.getUUID());
 
-        if (!profile.hasPicksFor(merchantLevel)) {
-            // Need picker
+        // Case 2: pre-existing villager with vanilla offers, no profile.
+        // Import existing offers into legacy buckets so the player keeps them.
+        if (profile == null) {
+            profile = VillagerProfile.fresh(villager.getUUID(), profName);
+            MerchantOffers existing = villager.getOffers();
+            if (existing != null && !existing.isEmpty()) {
+                importExistingOffers(profile, existing, merchantLevel);
+                state.update(profile);
+                TradeOptimizer.LOGGER.info("Imported {} existing offers from villager {} into legacy",
+                        existing.size(), villager.getUUID());
+                // They've already got valid offers — just let them trade.
+                return true;
+            }
+            state.update(profile);
+        } else if (!profile.profession().equals(profName)) {
+            // Profession changed (e.g. workstation switched) — wipe and start over.
+            profile.clearAll();
+            profile = VillagerProfile.fresh(villager.getUUID(), profName);
+            state.update(profile);
+        }
+
+        if (!profile.isFilled(merchantLevel)) {
             sendPicker(player, villager, profile, merchantLevel);
             return false;
         }
 
-        // Has picks — make sure live offers match
-        applyPicksToVillager(level, villager, profile);
+        // Has entries (picks or legacy) for current level — ensure live offers match.
+        applyToVillager(level, villager, profile);
         return true;
     }
 
-    /** Called from PickerSubmit network handler. */
     public static void onPickerSubmit(ServerPlayer player, UUID villagerId, int level, List<TradeKey> picks) {
         ServerLevel sl = player.level();
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) {
             player.sendSystemMessage(Component.literal("Villager not found."));
             return;
         }
-        VillagerProfile profile = VillagerProfileState.get(sl).getOrCreate(
-                villagerId,
-                BuiltInRegistries.VILLAGER_PROFESSION.getKey(villager.getVillagerData().profession().value()).toString()
-        );
+        String profName = BuiltInRegistries.VILLAGER_PROFESSION
+                .getKey(villager.getVillagerData().profession().value()).toString();
+
+        VillagerProfileState state = VillagerProfileState.get(sl);
+        VillagerProfile profile = state.get(villagerId);
+        if (profile == null) profile = VillagerProfile.fresh(villagerId, profName);
 
         profile.setPicks(level, picks);
-        VillagerProfileState.get(sl).update(profile);
+        state.update(profile);
 
-        applyPicksToVillager(sl, villager, profile);
+        applyToVillager(sl, villager, profile);
 
         player.sendSystemMessage(Component.literal(
                 "Trades locked in for level " + level + ". Right-click the villager to trade."));
     }
 
-    /** Called from ResetVillager network handler. */
     public static void onReset(ServerPlayer player, UUID villagerId) {
         ServerLevel sl = player.level();
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) return;
@@ -104,7 +121,6 @@ public final class ProfileController {
             state.update(profile);
         }
 
-        // Drop level back to Novice, zero XP, clear offers.
         VillagerData current = villager.getVillagerData();
         villager.setVillagerData(current.withLevel(1));
         villager.setVillagerXp(0);
@@ -118,6 +134,19 @@ public final class ProfileController {
     // Internal helpers
     // -------------------------------------------------------------------------
 
+    /** Split a flat MerchantOffers list into 2-per-level legacy buckets. */
+    private static void importExistingOffers(VillagerProfile profile, MerchantOffers existing, int merchantLevel) {
+        // Vanilla generates 2 offers per level, in order: indices 0..1 = level 1, 2..3 = level 2, etc.
+        int perLevel = 2;
+        for (int lvl = 1; lvl <= merchantLevel; lvl++) {
+            int start = (lvl - 1) * perLevel;
+            int end = Math.min(existing.size(), start + perLevel);
+            if (start >= end) continue;
+            List<MerchantOffer> bucket = new ArrayList<>(existing.subList(start, end));
+            profile.setLegacy(lvl, bucket);
+        }
+    }
+
     private static void sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
         ServerLevel level = player.level();
         VillagerProfession prof = villager.getVillagerData().profession().value();
@@ -127,7 +156,7 @@ public final class ProfileController {
             return;
         }
 
-        List<AvailableTrade> available = OfferFactory.enumerate(level, tradeSetKey);
+        List<AvailableTrade> available = OfferFactory.enumerate(level, villager, tradeSetKey);
         if (available.isEmpty()) {
             player.sendSystemMessage(Component.literal(
                     "No trades available for " + profile.profession() + " level " + merchantLevel));
@@ -138,7 +167,7 @@ public final class ProfileController {
                 villager.getUUID(),
                 profile.profession(),
                 merchantLevel,
-                2,           // vanilla always rolls 2 trades per level
+                2,
                 available
         );
         if (ServerPlayNetworking.canSend(player, NetworkPayloads.OPEN_PICKER_TYPE)) {
@@ -147,38 +176,23 @@ public final class ProfileController {
     }
 
     /**
-     * Construct a MerchantOffers list from the player's picks (across every level
-     * up to the villager's current level) and apply it to the villager.
+     * Rebuild the villager's offers from profile state. Picks get fresh min-cost generation;
+     * legacy levels keep their imported MerchantOffers verbatim so progress isn't lost.
      */
-    private static void applyPicksToVillager(ServerLevel level, Villager villager, VillagerProfile profile) {
+    private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile) {
         int currentLevel = villager.getVillagerData().level();
         MerchantOffers offers = new MerchantOffers();
 
         for (int lvl = 1; lvl <= currentLevel; lvl++) {
+            // Picks first (newly chosen trades)
             for (TradeKey key : profile.picksFor(lvl)) {
-                Optional<MerchantOffer> offer = OfferFactory.generate(level, key);
-                offer.filter(o -> o != null).ifPresent(offers::add);
+                Optional<MerchantOffer> offer = OfferFactory.generate(level, villager, key);
+                offer.ifPresent(offers::add);
             }
+            // Then preserved legacy offers
+            offers.addAll(profile.legacyFor(lvl));
         }
 
         villager.setOffers(offers);
-    }
-
-    /**
-     * Validation: given a list of picks the client submitted, return only the ones
-     * that are actually in this trade set. Prevents a client from sending random keys.
-     */
-    public static List<TradeKey> filterValid(ServerLevel level, ResourceKey<TradeSet> tradeSetKey, List<TradeKey> picks) {
-        List<AvailableTrade> available = OfferFactory.enumerate(level, tradeSetKey);
-        List<TradeKey> valid = new ArrayList<>();
-        for (TradeKey p : picks) {
-            for (AvailableTrade a : available) {
-                if (a.key().id().equals(p.id())) {
-                    valid.add(p);
-                    break;
-                }
-            }
-        }
-        return valid;
     }
 }
