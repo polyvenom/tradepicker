@@ -28,8 +28,12 @@ public final class VillagerInteractionListener {
             if (!(entity instanceof Villager villager)) return InteractionResult.PASS;
             if (!(player instanceof ServerPlayer sp)) return InteractionResult.PASS;
             if (hand != InteractionHand.MAIN_HAND) return InteractionResult.PASS;
-            ProfileController.onInteract(sp, villager);
-            return InteractionResult.PASS;
+            boolean weHandled = !ProfileController.onInteract(sp, villager);
+            // SUCCESS when we handled it (picker sent OR merchant opened by us): tells
+            // the client the interact was acknowledged so its prediction queue clears
+            // and subsequent right-clicks aren't swallowed.
+            // PASS when we did nothing (e.g. nitwit / no-profession): vanilla can handle.
+            return weHandled ? InteractionResult.SUCCESS : InteractionResult.PASS;
         });
     }
 }

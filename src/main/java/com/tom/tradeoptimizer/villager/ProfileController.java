@@ -92,9 +92,15 @@ public final class ProfileController {
             return false;
         }
 
-        // Has entries (picks or legacy) for current level — ensure live offers match.
+        // Has entries (picks or legacy) for current level — ensure live offers match
+        // and open the merchant menu directly. We bypass vanilla's mob interact chain
+        // because empirically it silently no-ops in our flow even when offers are
+        // non-empty (verified via diagnostic logging). Opening directly is what
+        // vanilla's startTrading does internally, minus the protected helpers we
+        // can't see.
         applyToVillager(level, villager, profile);
-        return true;
+        villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+        return false;
     }
 
     public static void onPickerSubmit(ServerPlayer player, UUID villagerId, int level, List<TradeKey> picks) {

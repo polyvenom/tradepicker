@@ -163,19 +163,34 @@ public final class OfferFactory {
         int levelOffset = parsed.level - minLevel;
 
         // Use any book-producing trade in this level's set as the template
+        int triedCount = 0;
         for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
+            triedCount++;
+            String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
             try {
                 VillagerTrade trade = holder.value();
                 LootContext ctx = buildContext(level, villager, tradeSet,
                         new IndexBiasedRandomSource(enchIdx, levelOffset));
                 MerchantOffer offer = trade.getOffer(ctx);
-                if (offer != null && offer.getResult().is(Items.ENCHANTED_BOOK)) {
-                    return Optional.of(offer);
+                if (offer == null) {
+                    TradeOptimizer.LOGGER.debug("[book-regen] {} returned null", tradeName);
+                    continue;
                 }
-            } catch (Exception ignored) {
-                // try the next trade
+                if (!offer.getResult().is(Items.ENCHANTED_BOOK)) {
+                    TradeOptimizer.LOGGER.debug("[book-regen] {} produced non-book {}",
+                            tradeName, offer.getResult().getItem());
+                    continue;
+                }
+                TradeOptimizer.LOGGER.info("[book-regen] resolved {} -> {} via template {}",
+                        synthetic.id(), offer.getResult(), tradeName);
+                return Optional.of(offer);
+            } catch (Exception e) {
+                TradeOptimizer.LOGGER.warn("[book-regen] template {} threw while regenerating {}",
+                        tradeName, synthetic.id(), e);
             }
         }
+        TradeOptimizer.LOGGER.warn("[book-regen] FAILED to regenerate {} after trying {} templates",
+                synthetic.id(), triedCount);
         return Optional.empty();
     }
 
