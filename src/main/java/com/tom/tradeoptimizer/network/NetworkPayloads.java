@@ -12,22 +12,18 @@ public final class NetworkPayloads {
         return Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, path);
     }
 
-    public static final CustomPacketPayload.Type<TradeSnapshotS2C> SNAPSHOT_TYPE =
-            new CustomPacketPayload.Type<>(id("trade_snapshot"));
+    public static final CustomPacketPayload.Type<OpenPickerS2C> OPEN_PICKER_TYPE =
+            new CustomPacketPayload.Type<>(id("open_picker"));
 
-    public static final CustomPacketPayload.Type<StartCycleC2S> START_CYCLE_TYPE =
-            new CustomPacketPayload.Type<>(id("start_cycle"));
+    public static final CustomPacketPayload.Type<PickerSubmitC2S> PICKER_SUBMIT_TYPE =
+            new CustomPacketPayload.Type<>(id("picker_submit"));
 
-    public static final CustomPacketPayload.Type<StopCycleC2S> STOP_CYCLE_TYPE =
-            new CustomPacketPayload.Type<>(id("stop_cycle"));
-
-    public static final CustomPacketPayload.Type<CycleStatusS2C> CYCLE_STATUS_TYPE =
-            new CustomPacketPayload.Type<>(id("cycle_status"));
+    public static final CustomPacketPayload.Type<ResetVillagerC2S> RESET_VILLAGER_TYPE =
+            new CustomPacketPayload.Type<>(id("reset_villager"));
 
     public static void registerCommon() {
-        PayloadTypeRegistry.clientboundPlay().register(SNAPSHOT_TYPE, TradeSnapshotS2C.STREAM_CODEC);
-        PayloadTypeRegistry.clientboundPlay().register(CYCLE_STATUS_TYPE, CycleStatusS2C.STREAM_CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(START_CYCLE_TYPE, StartCycleC2S.STREAM_CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(STOP_CYCLE_TYPE, StopCycleC2S.STREAM_CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(OPEN_PICKER_TYPE, OpenPickerS2C.STREAM_CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(PICKER_SUBMIT_TYPE, PickerSubmitC2S.STREAM_CODEC);
+        PayloadTypeRegistry.serverboundPlay().register(RESET_VILLAGER_TYPE, ResetVillagerC2S.STREAM_CODEC);
     }
 }

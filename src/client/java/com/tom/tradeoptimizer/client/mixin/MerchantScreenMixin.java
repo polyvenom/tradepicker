@@ -1,48 +1,48 @@
 package com.tom.tradeoptimizer.client.mixin;
 
-import com.tom.tradeoptimizer.client.access.MerchantScreenAccessor;
-import com.tom.tradeoptimizer.client.ui.MerchantOverlay;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import com.tom.tradeoptimizer.client.state.ClientLastVillager;
+import com.tom.tradeoptimizer.client.ui.ResetConfirmScreen;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.MerchantScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.MerchantMenu;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.UUID;
+
 /**
- * Draws our trade-rating overlay on top of the vanilla merchant screen.
+ * Adds a small "Reset" button to the merchant trade screen. Clicking it opens our
+ * ResetConfirmScreen which double-checks the player wants to wipe the villager.
  *
- * Extending AbstractContainerScreen<MerchantMenu> here is the standard mixin trick to
- * give @Shadow access to inherited fields like leftPos/topPos. The constructor is for
- * javac only — mixin replaces this class at load time, so super() is never called.
- *
- * Also exposes private `shopItem` via MerchantScreenAccessor so the cycle keybind
- * knows which trade row the player highlighted.
+ * Extending AbstractContainerScreen<MerchantMenu> is the standard mixin trick to get
+ * @Shadow access to inherited fields (leftPos/topPos/imageWidth) — the constructor
+ * is dead code at runtime, only present so javac is happy with the extends clause.
  */
 @Mixin(MerchantScreen.class)
-public abstract class MerchantScreenMixin extends AbstractContainerScreen<MerchantMenu> implements MerchantScreenAccessor {
-
-    @Shadow private int scrollOff;
-    @Shadow private int shopItem;
+public abstract class MerchantScreenMixin extends AbstractContainerScreen<MerchantMenu> {
 
     private MerchantScreenMixin(MerchantMenu menu, Inventory inv, Component title) {
         super(menu, inv, title);
     }
 
-    @Inject(method = "extractContents", at = @At("TAIL"))
-    private void tradeoptimizer$drawOverlay(GuiGraphicsExtractor g, int mouseX, int mouseY,
-                                            float partialTick, CallbackInfo ci) {
-        MerchantScreen self = (MerchantScreen) (Object) this;
-        MerchantOverlay.render(self, this.leftPos, this.topPos, this.scrollOff, g, mouseX, mouseY, self.getFont());
-    }
-
-    @Override
-    public int tradeoptimizer$getShopItem() {
-        return this.shopItem;
+    @Inject(method = "init", at = @At("TAIL"))
+    private void tradeoptimizer$addResetButton(CallbackInfo ci) {
+        // Place a "Reset" button at the top-right corner just above the trade window.
+        int btnW = 50;
+        int btnH = 12;
+        int x = this.leftPos + this.imageWidth - btnW - 4;
+        int y = this.topPos - btnH - 2;
+        this.addRenderableWidget(Button.builder(Component.literal("Reset"), b -> {
+            UUID id = ClientLastVillager.get();
+            if (id == null) return;
+            Screen self = (MerchantScreen) (Object) this;
+            this.minecraft.setScreen(new ResetConfirmScreen(id, self));
+        }).bounds(x, y, btnW, btnH).build());
     }
 }

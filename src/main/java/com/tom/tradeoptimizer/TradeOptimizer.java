@@ -2,7 +2,6 @@ package com.tom.tradeoptimizer;
 
 import com.tom.tradeoptimizer.network.NetworkPayloads;
 import com.tom.tradeoptimizer.network.ServerNetworkHandler;
-import com.tom.tradeoptimizer.trade.CycleController;
 import com.tom.tradeoptimizer.villager.VillagerInteractionListener;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.loader.api.FabricLoader;
@@ -18,14 +17,11 @@ public final class TradeOptimizer implements ModInitializer {
         NetworkPayloads.registerCommon();
         ServerNetworkHandler.register();
         VillagerInteractionListener.register();
-        CycleController.register();
 
-        // Friendly notice if mrbysco's trade-cycling mod is also installed — both can
-        // technically coexist, but our targeted cycling supersedes their manual flow.
         if (FabricLoader.getInstance().isModLoaded("trade-cycling")) {
             LOGGER.warn("trade-cycling mod is installed alongside Trade Optimizer. "
-                    + "Recommend removing trade-cycling — our auto-cycle covers the same workstation flow "
-                    + "and adds target-trade detection plus best-price tracking.");
+                    + "Recommend removing trade-cycling — this mod replaces its purpose by letting "
+                    + "the player pick trades directly instead of cycling for them.");
         }
 
         LOGGER.info("Trade Optimizer initialized");
