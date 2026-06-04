@@ -24,7 +24,11 @@ public final class VillagerInteractionListener {
             if (hand != net.minecraft.world.InteractionHand.MAIN_HAND) return InteractionResult.PASS;
 
             boolean allowVanilla = ProfileController.onInteract(sp, villager);
-            return allowVanilla ? InteractionResult.PASS : InteractionResult.SUCCESS_SERVER;
+            // SUCCESS (not SUCCESS_SERVER!) so the client gets an acknowledgement and
+            // its prediction queue clears. SUCCESS_SERVER leaves the client thinking the
+            // first interact is still pending — subsequent right-clicks on the same entity
+            // get swallowed until the prediction is reset by interacting with something else.
+            return allowVanilla ? InteractionResult.PASS : InteractionResult.SUCCESS;
         });
     }
 }

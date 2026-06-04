@@ -21,8 +21,11 @@ import java.util.Set;
 
 /**
  * Replaces the vanilla trade dance: the player sees every level-N trade for this villager
- * laid out as cards, picks exactly the required number (vanilla = 2), confirms, and the
- * server locks those trades in at min cost.
+ * as cards, picks exactly the required number (vanilla = 2), and the server locks those
+ * trades in at min cost.
+ *
+ * For book-trade-rich professions (librarian) the catalogue is long, so this screen
+ * scrolls — mouse wheel moves the visible window over the card grid.
  */
 public final class TradePickerScreen extends Screen {
 
@@ -31,10 +34,12 @@ public final class TradePickerScreen extends Screen {
     private static final int CARD_GAP = 4;
     private static final int COLUMNS = 2;
     private static final int TOP_PAD = 50;
+    private static final int BOTTOM_RESERVED = 60; // room for buttons + hover tooltip
 
     private final OpenPickerS2C data;
     private final Set<Integer> selectedIndices = new HashSet<>();
     private Button confirmBtn;
+    private int scrollRow = 0;
 
     public TradePickerScreen(OpenPickerS2C data) {
         super(Component.literal("Trade Picker"));
@@ -64,49 +69,82 @@ public final class TradePickerScreen extends Screen {
         onClose();
     }
 
+    private int visibleRows() {
+        int available = this.height - TOP_PAD - BOTTOM_RESERVED;
+        return Math.max(1, available / (CARD_HEIGHT + CARD_GAP));
+    }
+
+    private int totalRows() {
+        int n = data.available().size();
+        return (n + COLUMNS - 1) / COLUMNS;
+    }
+
+    private int maxScroll() {
+        return Math.max(0, totalRows() - visibleRows());
+    }
+
     @Override
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
         super.extractRenderState(g, mouseX, mouseY, partial);
 
-        // Title
+        // Title row
         String levelName = levelName(data.level());
         String profDisplay = shortProf(data.profession());
-        g.text(this.font,
-                String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
-                        profDisplay, levelName, data.picksRequired()),
-                this.width / 2 - 100, 20, 0xFFFFFFFF);
+        String title = String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
+                profDisplay, levelName, data.picksRequired());
+        g.text(this.font, title, (this.width - this.font.width(title)) / 2, 20, 0xFFFFFFFF);
 
-        g.text(this.font,
-                String.format(Locale.ROOT, "%d / %d selected",
-                        selectedIndices.size(), data.picksRequired()),
-                this.width / 2 - 60, 34, 0xFFAAAAAA);
+        String status = String.format(Locale.ROOT, "%d / %d selected",
+                selectedIndices.size(), data.picksRequired());
+        g.text(this.font, status, (this.width - this.font.width(status)) / 2, 34, 0xFFAAAAAA);
 
+        // Card grid
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
+        int visible = visibleRows();
         List<AvailableTrade> trades = data.available();
-        for (int i = 0; i < trades.size(); i++) {
-            int col = i % COLUMNS;
-            int row = i / COLUMNS;
+        int firstIdx = scrollRow * COLUMNS;
+        int lastIdx = Math.min(trades.size(), firstIdx + visible * COLUMNS);
+
+        AvailableTrade hovered = null;
+        for (int i = firstIdx; i < lastIdx; i++) {
+            int slot = i - firstIdx;
+            int col = slot % COLUMNS;
+            int row = slot / COLUMNS;
             int cx = gridStartX + col * (CARD_WIDTH + CARD_GAP);
             int cy = TOP_PAD + row * (CARD_HEIGHT + CARD_GAP);
-            drawCard(g, trades.get(i), cx, cy, i, mouseX, mouseY);
+            if (drawCard(g, trades.get(i), cx, cy, i, mouseX, mouseY)) {
+                hovered = trades.get(i);
+            }
+        }
+
+        // Hover tooltip line (above the bottom buttons)
+        if (hovered != null) {
+            String label = describeOffer(hovered.previewOffer());
+            int tx = (this.width - this.font.width(label)) / 2;
+            int ty = this.height - 50;
+            g.text(this.font, label, tx, ty, 0xFFFFCC55);
+        }
+
+        // Scroll affordance
+        if (maxScroll() > 0) {
+            String hint = "Scroll for more (" + (scrollRow + 1) + " / " + (maxScroll() + 1) + ")";
+            g.text(this.font, hint, (this.width - this.font.width(hint)) / 2,
+                    this.height - 50 - (hovered == null ? 0 : 12), 0xFF888888);
         }
     }
 
-    private void drawCard(GuiGraphicsExtractor g, AvailableTrade trade, int x, int y, int idx, int mouseX, int mouseY) {
+    private boolean drawCard(GuiGraphicsExtractor g, AvailableTrade trade, int x, int y, int idx, int mouseX, int mouseY) {
         boolean selected = selectedIndices.contains(idx);
         boolean hovered = mouseX >= x && mouseX < x + CARD_WIDTH && mouseY >= y && mouseY < y + CARD_HEIGHT;
 
-        // Background
         int bg = selected ? 0xFF55AA55 : hovered ? 0xFF606060 : 0xFF404040;
         g.fill(x, y, x + CARD_WIDTH, y + CARD_HEIGHT, bg);
-        // Border
         int border = selected ? 0xFFAAFFAA : 0xFF808080;
         g.fill(x, y, x + CARD_WIDTH, y + 1, border);
         g.fill(x, y + CARD_HEIGHT - 1, x + CARD_WIDTH, y + CARD_HEIGHT, border);
         g.fill(x, y, x + 1, y + CARD_HEIGHT, border);
         g.fill(x + CARD_WIDTH - 1, y, x + CARD_WIDTH, y + CARD_HEIGHT, border);
 
-        // Cost A icon
         MerchantOffer offer = trade.previewOffer();
         ItemStack a = offer.getBaseCostA();
         ItemStack b = offer.getCostB();
@@ -128,11 +166,7 @@ public final class TradePickerScreen extends Screen {
         g.item(r, afterA, iy);
         g.itemDecorations(this.font, r, afterA, iy);
 
-        // Hover tooltip: show full item names + counts
-        if (hovered) {
-            String label = describeOffer(offer);
-            g.text(this.font, label, this.width / 2 - this.font.width(label) / 2, this.height - 50, 0xFFFFCC55);
-        }
+        return hovered;
     }
 
     private String describeOffer(MerchantOffer o) {
@@ -153,11 +187,16 @@ public final class TradePickerScreen extends Screen {
         if (event.button() != 0) return super.mouseClicked(event, doubleClick);
 
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
+        int visible = visibleRows();
         List<AvailableTrade> trades = data.available();
+        int firstIdx = scrollRow * COLUMNS;
+        int lastIdx = Math.min(trades.size(), firstIdx + visible * COLUMNS);
+
         double mx = event.x(), my = event.y();
-        for (int i = 0; i < trades.size(); i++) {
-            int col = i % COLUMNS;
-            int row = i / COLUMNS;
+        for (int i = firstIdx; i < lastIdx; i++) {
+            int slot = i - firstIdx;
+            int col = slot % COLUMNS;
+            int row = slot / COLUMNS;
             int cx = gridStartX + col * (CARD_WIDTH + CARD_GAP);
             int cy = TOP_PAD + row * (CARD_HEIGHT + CARD_GAP);
             if (mx >= cx && mx < cx + CARD_WIDTH && my >= cy && my < cy + CARD_HEIGHT) {
@@ -166,6 +205,15 @@ public final class TradePickerScreen extends Screen {
             }
         }
         return super.mouseClicked(event, doubleClick);
+    }
+
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (scrollY != 0 && maxScroll() > 0) {
+            scrollRow = Math.max(0, Math.min(maxScroll(), scrollRow - (int) Math.signum(scrollY)));
+            return true;
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
     private void toggleSelection(int idx) {
