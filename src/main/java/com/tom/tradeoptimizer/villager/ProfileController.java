@@ -159,12 +159,23 @@ public final class ProfileController {
             return;
         }
 
-        List<AvailableTrade> available = OfferFactory.enumerate(level, villager, tradeSetKey);
+        List<AvailableTrade> available;
+        try {
+            available = OfferFactory.enumerate(level, villager, tradeSetKey);
+        } catch (Exception e) {
+            TradeOptimizer.LOGGER.error("Trade enumeration failed for {} level {}",
+                    profile.profession(), merchantLevel, e);
+            player.sendSystemMessage(Component.literal(
+                    "Trade Optimizer: failed to enumerate trades (see server log)."));
+            return;
+        }
         if (available.isEmpty()) {
             player.sendSystemMessage(Component.literal(
                     "No trades available for " + profile.profession() + " level " + merchantLevel));
             return;
         }
+        TradeOptimizer.LOGGER.info("Picker for {} level {}: {} trade options",
+                profile.profession(), merchantLevel, available.size());
 
         OpenPickerS2C payload = new OpenPickerS2C(
                 villager.getUUID(),
@@ -173,8 +184,17 @@ public final class ProfileController {
                 2,
                 available
         );
-        if (ServerPlayNetworking.canSend(player, NetworkPayloads.OPEN_PICKER_TYPE)) {
+        if (!ServerPlayNetworking.canSend(player, NetworkPayloads.OPEN_PICKER_TYPE)) {
+            TradeOptimizer.LOGGER.warn("Client can't receive OPEN_PICKER (mod missing on client?)");
+            return;
+        }
+        try {
             ServerPlayNetworking.send(player, payload);
+        } catch (Exception e) {
+            TradeOptimizer.LOGGER.error("Failed to send picker payload ({} trades)",
+                    available.size(), e);
+            player.sendSystemMessage(Component.literal(
+                    "Trade Optimizer: picker send failed (see server log)."));
         }
     }
 

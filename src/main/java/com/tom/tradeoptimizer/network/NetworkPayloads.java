@@ -22,7 +22,11 @@ public final class NetworkPayloads {
             new CustomPacketPayload.Type<>(id("reset_villager"));
 
     public static void registerCommon() {
-        PayloadTypeRegistry.clientboundPlay().register(OPEN_PICKER_TYPE, OpenPickerS2C.STREAM_CODEC);
+        // OpenPickerS2C can carry ~100+ trade previews (every tradeable enchantment x
+        // every level for a librarian). Use registerLarge with a 2 MiB cap so the
+        // packet never silently fails to encode against the default 32 KB limit.
+        PayloadTypeRegistry.clientboundPlay().registerLarge(OPEN_PICKER_TYPE,
+                OpenPickerS2C.STREAM_CODEC, 2 * 1024 * 1024);
         PayloadTypeRegistry.serverboundPlay().register(PICKER_SUBMIT_TYPE, PickerSubmitC2S.STREAM_CODEC);
         PayloadTypeRegistry.serverboundPlay().register(RESET_VILLAGER_TYPE, ResetVillagerC2S.STREAM_CODEC);
     }
