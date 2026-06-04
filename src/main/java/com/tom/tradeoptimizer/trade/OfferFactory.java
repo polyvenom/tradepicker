@@ -51,6 +51,11 @@ public final class OfferFactory {
             if (keyOpt.isEmpty()) continue;
             try {
                 MerchantOffer preview = holder.value().getOffer(ctx);
+                if (preview == null) {
+                    // Vanilla trades can legitimately return null (e.g. dyed-armor with no valid
+                    // color picked, map-trade with no nearby structure). Skip them.
+                    continue;
+                }
                 out.add(new AvailableTrade(new TradeKey(keyOpt.get().identifier()), preview));
             } catch (Exception e) {
                 TradeOptimizer.LOGGER.warn("Failed to generate preview for trade {}: {}",

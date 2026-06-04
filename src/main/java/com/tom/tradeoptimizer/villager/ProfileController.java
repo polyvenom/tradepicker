@@ -157,7 +157,7 @@ public final class ProfileController {
         for (int lvl = 1; lvl <= currentLevel; lvl++) {
             for (TradeKey key : profile.picksFor(lvl)) {
                 Optional<MerchantOffer> offer = OfferFactory.generate(level, key);
-                offer.ifPresent(offers::add);
+                offer.filter(o -> o != null).ifPresent(offers::add);
             }
         }
 
