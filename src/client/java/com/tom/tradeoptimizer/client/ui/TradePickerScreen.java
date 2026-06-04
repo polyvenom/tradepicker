@@ -41,12 +41,14 @@ import java.util.Set;
  */
 public final class TradePickerScreen extends Screen {
 
-    private static final int CARD_WIDTH = 140;
+    private static final int CARD_WIDTH = 180;
     private static final int CARD_HEIGHT = 24;
     private static final int CARD_GAP = 4;
     private static final int COLUMNS = 2;
     private static final int TOP_PAD = 50;
     private static final int BOTTOM_RESERVED = 60;
+    /** Right-edge padding inside the card so the enchantment label doesn't overflow. */
+    private static final int LABEL_RIGHT_PAD = 6;
 
     private final OpenPickerS2C data;
     private final Set<Integer> selectedIndices = new HashSet<>();
@@ -196,13 +198,24 @@ public final class TradePickerScreen extends Screen {
         g.itemDecorations(this.font, r, afterA, iy);
 
         // Enchantment label on the right side of the card — this is what tells the
-        // player which book they're picking.
+        // player which book they're picking. Auto-truncate if it doesn't fit.
         if (!enchLabel.isEmpty()) {
             int labelX = afterA + 18;
-            g.text(this.font, enchLabel, labelX, y + 9, 0xFFFFFFAA);
+            int maxWidth = (x + CARD_WIDTH - LABEL_RIGHT_PAD) - labelX;
+            String fitted = fitText(enchLabel, maxWidth);
+            g.text(this.font, fitted, labelX, y + 9, 0xFFFFFFAA);
         }
 
         return hovered;
+    }
+
+    /** Shorten with a trailing dot if it would overflow the available pixel width. */
+    private String fitText(String text, int maxWidth) {
+        if (this.font.width(text) <= maxWidth) return text;
+        while (text.length() > 1 && this.font.width(text + ".") > maxWidth) {
+            text = text.substring(0, text.length() - 1);
+        }
+        return text + ".";
     }
 
     /** Card right-side label — only populated for enchanted books. */
