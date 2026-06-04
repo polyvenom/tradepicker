@@ -29,24 +29,16 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Server-side utility: enumerate the trade pool for a (profession, level) pair and
- * produce min-cost MerchantOffers.
+ * Enumerate the trade pool for a (profession, level) pair and produce min-cost
+ * MerchantOffers. Book trades expand into one card per (enchantment × level) so
+ * the player can pick Sharpness V at min cost, not just Sharpness I.
  *
- * The LootContext mirrors vanilla's AbstractVillager.addOffersFromTradeSet exactly.
- * For non-book trades we plug in MinRandomSource so every NumberProvider lands at min.
+ * LootContext mirrors vanilla's exactly (matches AbstractVillager.addOffersFromTradeSet).
+ * For book trades we feed vanilla's enchant_randomly an IndexBiasedRandomSource that
+ * steers the enchantment + level rolls to the specific combination we want, with all
+ * other random rolls (cost variance) pinned at 0.
  *
- * For book trades we ALSO use vanilla's getOffer pipeline — but with an
- * IndexBiasedRandomSource that returns the index of the enchantment we want for the
- * first nextInt (the one used by HolderSet.getRandomElement) and 0 for every
- * subsequent call (so level lands at min and the cost-variance roll lands at 0).
- *
- * That way vanilla itself computes the emerald cost using its real formula —
- * we never hard-code it — and the player gets the cheapest version vanilla would
- * ever roll for that specific enchantment.
- *
- * Synthetic TradeKey for book picks: tradeoptimizer:book/<ench_ns>/<ench_path>.
- * The server side resolves these by finding any enchanted-book trade in the current
- * villager's (profession, level) pool and using it as a template.
+ * Synthetic TradeKey: tradeoptimizer:book/<ench_ns>/<ench_path>/L<level>
  */
 public final class OfferFactory {
     private OfferFactory() {}
@@ -71,8 +63,6 @@ public final class OfferFactory {
             if (keyOpt.isEmpty()) continue;
 
             try {
-                // Generate one preview with MinRandomSource just to detect whether this
-                // trade produces a book at all.
                 LootContext minCtx = buildContext(level, villager, tradeSet, MinRandomSource.INSTANCE);
                 MerchantOffer preview = holder.value().getOffer(minCtx);
                 if (preview == null) continue;
@@ -108,39 +98,43 @@ public final class OfferFactory {
     }
 
     // -------------------------------------------------------------------------
-    // Book enumeration via biased random source
+    // Book enumeration: one card per (enchantment × level)
     // -------------------------------------------------------------------------
 
-    /** One AvailableTrade per #minecraft:tradeable enchantment, costs computed by vanilla. */
     private static List<AvailableTrade> expandBookTrade(ServerLevel level, Villager villager,
                                                         TradeSet tradeSet, VillagerTrade template,
                                                         HolderLookup.Provider registries) {
         List<AvailableTrade> out = new ArrayList<>();
         List<Holder<Enchantment>> tradeable = tradeableEnchantments(registries);
 
-        for (int i = 0; i < tradeable.size(); i++) {
-            Holder<Enchantment> ench = tradeable.get(i);
+        for (int enchIdx = 0; enchIdx < tradeable.size(); enchIdx++) {
+            Holder<Enchantment> ench = tradeable.get(enchIdx);
             Optional<ResourceKey<Enchantment>> enchKey = ench.unwrapKey();
             if (enchKey.isEmpty()) continue;
 
-            try {
-                LootContext ctx = buildContext(level, villager, tradeSet, new IndexBiasedRandomSource(i));
-                MerchantOffer offer = template.getOffer(ctx);
-                if (offer == null || !offer.getResult().is(Items.ENCHANTED_BOOK)) continue;
-                out.add(new AvailableTrade(buildSyntheticBookKey(enchKey.get().identifier()), offer));
-            } catch (Exception e) {
-                TradeOptimizer.LOGGER.debug("Skipped enchantment {} in book expansion: {}",
-                        enchKey.get().identifier(), e.getMessage());
+            int minLvl = ench.value().getMinLevel();
+            int maxLvl = ench.value().getMaxLevel();
+
+            for (int lvl = minLvl; lvl <= maxLvl; lvl++) {
+                int levelOffset = lvl - minLvl;
+                try {
+                    LootContext ctx = buildContext(level, villager, tradeSet,
+                            new IndexBiasedRandomSource(enchIdx, levelOffset));
+                    MerchantOffer offer = template.getOffer(ctx);
+                    if (offer == null || !offer.getResult().is(Items.ENCHANTED_BOOK)) continue;
+                    out.add(new AvailableTrade(
+                            buildSyntheticBookKey(enchKey.get().identifier(), lvl), offer));
+                } catch (Exception e) {
+                    // Skip on failure — some enchantments may not be valid for this trade.
+                }
             }
         }
         return out;
     }
 
-    /** Server-side regen for a book pick: find the level's book template, bias random. */
     private static Optional<MerchantOffer> generateBookOffer(ServerLevel level, Villager villager, TradeKey synthetic) {
-        Optional<Identifier> enchIdOpt = parseSyntheticEnchant(synthetic);
-        if (enchIdOpt.isEmpty()) return Optional.empty();
-        Identifier enchId = enchIdOpt.get();
+        SyntheticBookKey parsed = parseSyntheticBook(synthetic);
+        if (parsed == null) return Optional.empty();
 
         HolderLookup.Provider registries = level.registryAccess();
         VillagerData data = villager.getVillagerData();
@@ -153,22 +147,27 @@ public final class OfferFactory {
         if (setRef.isEmpty()) return Optional.empty();
         TradeSet tradeSet = setRef.get().value();
 
-        // Find this enchantment's index in the tradeable pool.
+        // Find enchantment index + min level in the tradeable pool
         List<Holder<Enchantment>> tradeable = tradeableEnchantments(registries);
-        int index = -1;
+        int enchIdx = -1;
+        int minLevel = 1;
         for (int i = 0; i < tradeable.size(); i++) {
-            if (tradeable.get(i).unwrapKey().map(k -> k.identifier().equals(enchId)).orElse(false)) {
-                index = i;
+            Holder<Enchantment> h = tradeable.get(i);
+            if (h.unwrapKey().map(k -> k.identifier().equals(parsed.enchantmentId)).orElse(false)) {
+                enchIdx = i;
+                minLevel = h.value().getMinLevel();
                 break;
             }
         }
-        if (index < 0) return Optional.empty();
+        if (enchIdx < 0) return Optional.empty();
+        int levelOffset = parsed.level - minLevel;
 
-        // Find any book-producing trade in this level's set to use as the template.
+        // Use any book-producing trade in this level's set as the template
         for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
             try {
                 VillagerTrade trade = holder.value();
-                LootContext ctx = buildContext(level, villager, tradeSet, new IndexBiasedRandomSource(index));
+                LootContext ctx = buildContext(level, villager, tradeSet,
+                        new IndexBiasedRandomSource(enchIdx, levelOffset));
                 MerchantOffer offer = trade.getOffer(ctx);
                 if (offer != null && offer.getResult().is(Items.ENCHANTED_BOOK)) {
                     return Optional.of(offer);
@@ -184,20 +183,30 @@ public final class OfferFactory {
     // Synthetic key encoding + tag helpers
     // -------------------------------------------------------------------------
 
+    private record SyntheticBookKey(Identifier enchantmentId, int level) {}
+
     private static boolean isBookKey(TradeKey key) {
         return key.id().getNamespace().equals(TradeOptimizer.MOD_ID)
                 && key.id().getPath().startsWith(BOOK_PREFIX);
     }
 
-    private static TradeKey buildSyntheticBookKey(Identifier enchantId) {
-        String path = BOOK_PREFIX + enchantId.getNamespace() + "/" + enchantId.getPath();
+    private static TradeKey buildSyntheticBookKey(Identifier enchantId, int level) {
+        String path = BOOK_PREFIX + enchantId.getNamespace() + "/" + enchantId.getPath() + "/L" + level;
         return new TradeKey(Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, path));
     }
 
-    private static Optional<Identifier> parseSyntheticEnchant(TradeKey key) {
-        String[] parts = key.id().getPath().split("/", 3);
-        if (parts.length != 3) return Optional.empty();
-        return Optional.of(Identifier.fromNamespaceAndPath(parts[1], parts[2]));
+    private static SyntheticBookKey parseSyntheticBook(TradeKey key) {
+        // path is "book/<ns>/<path>/L<level>"
+        String[] parts = key.id().getPath().split("/");
+        if (parts.length != 4) return null;
+        if (!parts[3].startsWith("L")) return null;
+        try {
+            int level = Integer.parseInt(parts[3].substring(1));
+            Identifier enchId = Identifier.fromNamespaceAndPath(parts[1], parts[2]);
+            return new SyntheticBookKey(enchId, level);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private static List<Holder<Enchantment>> tradeableEnchantments(HolderLookup.Provider registries) {
@@ -208,10 +217,6 @@ public final class OfferFactory {
         for (Holder<Enchantment> h : tag.get()) out.add(h);
         return out;
     }
-
-    // -------------------------------------------------------------------------
-    // LootContext construction (mirrors vanilla)
-    // -------------------------------------------------------------------------
 
     private static LootContext buildContext(ServerLevel level, Villager villager, TradeSet tradeSet, RandomSource rs) {
         LootParams params = new LootParams.Builder(level)

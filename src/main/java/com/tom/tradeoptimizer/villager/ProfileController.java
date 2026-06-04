@@ -40,7 +40,10 @@ public final class ProfileController {
     private ProfileController() {}
 
     /**
-     * @return true if vanilla interaction should proceed; false to cancel and show picker.
+     * Called on every right-click of a villager. Either applies picks to the villager
+     * (so vanilla's mob interact will then open the merchant) or sends the picker
+     * payload to the client. Return value retained for future use; the listener
+     * always returns PASS regardless.
      */
     public static boolean onInteract(ServerPlayer player, Villager villager) {
         ServerLevel level = player.level();

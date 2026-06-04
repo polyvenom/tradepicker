@@ -246,7 +246,9 @@ public final class TradePickerScreen extends Screen {
         return sb.toString();
     }
 
-    /** Pull the first stored enchantment off an item and format as "Name [Roman]". */
+    /** Pull the first stored enchantment off an item and format as "Name Roman".
+     *  Level is shown even for I so the user can distinguish cards (e.g. Sharpness I
+     *  vs Sharpness II vs Sharpness V). */
     private static String enchantmentDisplay(ItemStack stack) {
         ItemEnchantments enchants = stack.get(DataComponents.STORED_ENCHANTMENTS);
         if (enchants == null || enchants.isEmpty()) return "";
@@ -254,7 +256,7 @@ public final class TradePickerScreen extends Screen {
         int level = enchants.getLevel(ench);
         String pathStr = ench.unwrapKey().map(k -> k.identifier().getPath()).orElse("enchant");
         String base = capitalize(pathStr.replace('_', ' '));
-        return level > 1 ? base + " " + roman(level) : base;
+        return base + " " + roman(level);
     }
 
     private static String capitalize(String s) {

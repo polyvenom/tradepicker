@@ -2,15 +2,23 @@ package com.tom.tradeoptimizer.villager;
 
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.npc.villager.Villager;
 
 /**
- * Hooks the player's right-click on a villager. Delegates the decision (open picker
- * vs. let vanilla merchant proceed) to ProfileController.
+ * Hooks the player's right-click on a villager and delegates to ProfileController.
  *
- * IMPORTANT: UseEntityCallback fires on BOTH client and server. We only run logic
- * on the server side; the client path returns PASS so vanilla networking proceeds.
+ * Important: we ALWAYS return InteractionResult.PASS so vanilla's mob interact runs
+ * its full course. If the villager has offers (picks already locked in), vanilla
+ * opens the merchant menu normally. If the villager has none yet, vanilla's mob
+ * interact is a harmless no-op and our picker S2C arrives a tick later to open the
+ * picker on top.
+ *
+ * Earlier versions used SUCCESS / SUCCESS_SERVER to cancel vanilla. That caused
+ * Mojang's client-side prediction queue to get stuck on the entity (subsequent
+ * right-clicks were swallowed until the player interacted with a different entity
+ * to clear the prediction). Returning PASS avoids the prediction system entirely.
  */
 public final class VillagerInteractionListener {
     private VillagerInteractionListener() {}
@@ -19,16 +27,9 @@ public final class VillagerInteractionListener {
         UseEntityCallback.EVENT.register((player, level, hand, entity, hitResult) -> {
             if (!(entity instanceof Villager villager)) return InteractionResult.PASS;
             if (!(player instanceof ServerPlayer sp)) return InteractionResult.PASS;
-
-            // Only handle the main-hand interaction so we don't fire twice.
-            if (hand != net.minecraft.world.InteractionHand.MAIN_HAND) return InteractionResult.PASS;
-
-            boolean allowVanilla = ProfileController.onInteract(sp, villager);
-            // SUCCESS (not SUCCESS_SERVER!) so the client gets an acknowledgement and
-            // its prediction queue clears. SUCCESS_SERVER leaves the client thinking the
-            // first interact is still pending — subsequent right-clicks on the same entity
-            // get swallowed until the prediction is reset by interacting with something else.
-            return allowVanilla ? InteractionResult.PASS : InteractionResult.SUCCESS;
+            if (hand != InteractionHand.MAIN_HAND) return InteractionResult.PASS;
+            ProfileController.onInteract(sp, villager);
+            return InteractionResult.PASS;
         });
     }
 }

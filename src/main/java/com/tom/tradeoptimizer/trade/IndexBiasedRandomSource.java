@@ -4,24 +4,27 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 
 /**
- * A RandomSource where the first `nextInt(bound)` call returns the configured
- * target index (clamped into the bound), and every subsequent random call
- * returns 0/min. Lets us steer vanilla's enchant_randomly to a specific
- * enchantment while keeping every other random roll at the minimum end.
+ * A RandomSource that returns a pre-set sequence of integers for its first N
+ * `nextInt(bound)` calls, then 0 forever after.
  *
- * Single-use — the bias is consumed on the first nextInt(int). Construct a new
- * instance per enchantment.
+ * Used to steer vanilla's enchant_randomly:
+ *   - position 0 = HolderSet.getRandomElement → picks specific enchantment
+ *   - position 1 = level roll (Mth.nextInt(min, max) → nextInt(max-min+1)) → picks specific level
+ *   - positions 2+ = cost variance → 0 = vanilla's min cost
+ *
+ * Each call clamps the configured value into the bound (so position 0 returning 27
+ * with a bound of 30 still gives 27; with a bound of 10 it gives 9).
  */
 public final class IndexBiasedRandomSource implements RandomSource {
-    private final int target;
-    private boolean consumed = false;
+    private final int[] sequence;
+    private int pos = 0;
     private final RandomSource fallback = RandomSource.create(0L);
 
-    public IndexBiasedRandomSource(int target) {
-        this.target = target;
+    public IndexBiasedRandomSource(int... sequence) {
+        this.sequence = sequence;
     }
 
-    @Override public RandomSource fork() { return new IndexBiasedRandomSource(target); }
+    @Override public RandomSource fork() { return new IndexBiasedRandomSource(sequence); }
     @Override public PositionalRandomFactory forkPositional() { return fallback.forkPositional(); }
     @Override public void setSeed(long seed) {}
 
@@ -29,10 +32,11 @@ public final class IndexBiasedRandomSource implements RandomSource {
 
     @Override
     public int nextInt(int bound) {
-        if (!consumed) {
-            consumed = true;
+        if (pos < sequence.length) {
+            int v = sequence[pos++];
             if (bound <= 0) return 0;
-            return Math.min(target, bound - 1);
+            if (v < 0) return 0;
+            return Math.min(v, bound - 1);
         }
         return 0;
     }
