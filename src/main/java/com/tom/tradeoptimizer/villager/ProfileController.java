@@ -60,6 +60,12 @@ public final class ProfileController {
         VillagerProfileState state = VillagerProfileState.get(level);
         VillagerProfile profile = state.get(villager.getUUID());
 
+        TradeOptimizer.LOGGER.info("[interact] villager={} prof={} mlevel={} offers={} profile={} thread={}",
+                villager.getUUID(), profName, merchantLevel,
+                villager.getOffers() == null ? "null" : villager.getOffers().size(),
+                profile == null ? "null" : ("picks=" + profile.picks().keySet() + " legacy=" + profile.legacy().keySet()),
+                Thread.currentThread().getName());
+
         // Case 2: pre-existing villager with vanilla offers, no profile.
         // Import existing offers into legacy buckets so the player keeps them.
         if (profile == null) {
@@ -93,7 +99,10 @@ public final class ProfileController {
 
     public static void onPickerSubmit(ServerPlayer player, UUID villagerId, int level, List<TradeKey> picks) {
         ServerLevel sl = player.level();
+        TradeOptimizer.LOGGER.info("[submit] villager={} level={} picks={} thread={}",
+                villagerId, level, picks, Thread.currentThread().getName());
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) {
+            TradeOptimizer.LOGGER.warn("[submit] villager {} not found in level", villagerId);
             player.sendSystemMessage(Component.literal("Villager not found."));
             return;
         }
@@ -108,6 +117,7 @@ public final class ProfileController {
         state.update(profile);
 
         applyToVillager(sl, villager, profile);
+        TradeOptimizer.LOGGER.info("[submit] after apply: villager.offers={}", villager.getOffers().size());
 
         player.sendSystemMessage(Component.literal(
                 "Trades locked in for level " + level + ". Right-click the villager to trade."));
@@ -207,15 +217,19 @@ public final class ProfileController {
         MerchantOffers offers = new MerchantOffers();
 
         for (int lvl = 1; lvl <= currentLevel; lvl++) {
-            // Picks first (newly chosen trades)
             for (TradeKey key : profile.picksFor(lvl)) {
                 Optional<MerchantOffer> offer = OfferFactory.generate(level, villager, key);
+                TradeOptimizer.LOGGER.info("[apply] generate({}) lvl={} => {}",
+                        key.id(), lvl, offer.isPresent() ? "OK" : "EMPTY");
                 offer.ifPresent(offers::add);
             }
-            // Then preserved legacy offers
             offers.addAll(profile.legacyFor(lvl));
         }
 
+        TradeOptimizer.LOGGER.info("[apply] setOffers({}) on villager {} thread={}",
+                offers.size(), villager.getUUID(), Thread.currentThread().getName());
         villager.setOffers(offers);
+        TradeOptimizer.LOGGER.info("[apply] post-set: villager.getOffers().size()={}",
+                villager.getOffers().size());
     }
 }
