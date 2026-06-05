@@ -60,7 +60,7 @@ public final class ProfileController {
         VillagerProfileState state = VillagerProfileState.get(level);
         VillagerProfile profile = state.get(villager.getUUID());
 
-        TradeOptimizer.LOGGER.info("[interact] villager={} prof={} mlevel={} offers={} profile={} thread={}",
+        TradeOptimizer.LOGGER.debug("[interact] villager={} prof={} mlevel={} offers={} profile={} thread={}",
                 villager.getUUID(), profName, merchantLevel,
                 villager.getOffers() == null ? "null" : villager.getOffers().size(),
                 profile == null ? "null" : ("picks=" + profile.picks().keySet() + " legacy=" + profile.legacy().keySet()),
@@ -93,20 +93,22 @@ public final class ProfileController {
         }
 
         // Has entries (picks or legacy) for current level — ensure live offers match
-        // and open the merchant menu directly. We bypass vanilla's mob interact chain
-        // because empirically it silently no-ops in our flow even when offers are
-        // non-empty (verified via diagnostic logging). Opening directly is what
-        // vanilla's startTrading does internally, minus the protected helpers we
-        // can't see.
+        // and open the merchant menu directly. Order matters: setTradingPlayer FIRST,
+        // then openTradingScreen. MerchantMenu.stillValid() returns
+        // (merchant.getTradingPlayer() == player). If tradingPlayer is null when
+        // vanilla validates the container on its next tick, it sends
+        // ClientboundContainerClosePacket and the menu disappears after 1 frame.
+        // That's exactly what `startTrading` does in vanilla, just spelled out here.
         applyToVillager(level, villager, profile);
+        villager.setTradingPlayer(player);
         villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
         return false;
     }
 
     public static void onPickerSubmit(ServerPlayer player, UUID villagerId, int level, List<TradeKey> picks) {
         ServerLevel sl = player.level();
-        TradeOptimizer.LOGGER.info("[submit] villager={} level={} picks={} thread={}",
-                villagerId, level, picks, Thread.currentThread().getName());
+        TradeOptimizer.LOGGER.debug("[submit] villager={} level={} picks={}",
+                villagerId, level, picks);
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) {
             TradeOptimizer.LOGGER.warn("[submit] villager {} not found in level", villagerId);
             player.sendSystemMessage(Component.literal("Villager not found."));
@@ -123,7 +125,6 @@ public final class ProfileController {
         state.update(profile);
 
         applyToVillager(sl, villager, profile);
-        TradeOptimizer.LOGGER.info("[submit] after apply: villager.offers={}", villager.getOffers().size());
 
         player.sendSystemMessage(Component.literal(
                 "Trades locked in for level " + level + ". Right-click the villager to trade."));
@@ -225,17 +226,14 @@ public final class ProfileController {
         for (int lvl = 1; lvl <= currentLevel; lvl++) {
             for (TradeKey key : profile.picksFor(lvl)) {
                 Optional<MerchantOffer> offer = OfferFactory.generate(level, villager, key);
-                TradeOptimizer.LOGGER.info("[apply] generate({}) lvl={} => {}",
-                        key.id(), lvl, offer.isPresent() ? "OK" : "EMPTY");
+                if (offer.isEmpty()) {
+                    TradeOptimizer.LOGGER.warn("[apply] generate({}) lvl={} returned EMPTY",
+                            key.id(), lvl);
+                }
                 offer.ifPresent(offers::add);
             }
             offers.addAll(profile.legacyFor(lvl));
         }
-
-        TradeOptimizer.LOGGER.info("[apply] setOffers({}) on villager {} thread={}",
-                offers.size(), villager.getUUID(), Thread.currentThread().getName());
         villager.setOffers(offers);
-        TradeOptimizer.LOGGER.info("[apply] post-set: villager.getOffers().size()={}",
-                villager.getOffers().size());
     }
 }

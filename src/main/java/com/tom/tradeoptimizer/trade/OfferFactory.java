@@ -211,17 +211,24 @@ public final class OfferFactory {
     }
 
     private static SyntheticBookKey parseSyntheticBook(TradeKey key) {
-        // path is "book/<ns>/<path>/L<level>"
+        // New format: "book/<ns>/<path>/L<level>"
+        // Old format: "book/<ns>/<path>" — kept for backward-compat with profiles
+        // saved before per-level expansion landed; default to level 1.
         String[] parts = key.id().getPath().split("/");
-        if (parts.length != 4) return null;
-        if (!parts[3].startsWith("L")) return null;
-        try {
-            int level = Integer.parseInt(parts[3].substring(1));
+        if (parts.length == 3) {
             Identifier enchId = Identifier.fromNamespaceAndPath(parts[1], parts[2]);
-            return new SyntheticBookKey(enchId, level);
-        } catch (NumberFormatException e) {
-            return null;
+            return new SyntheticBookKey(enchId, 1);
         }
+        if (parts.length == 4 && parts[3].startsWith("L")) {
+            try {
+                int level = Integer.parseInt(parts[3].substring(1));
+                Identifier enchId = Identifier.fromNamespaceAndPath(parts[1], parts[2]);
+                return new SyntheticBookKey(enchId, level);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private static List<Holder<Enchantment>> tradeableEnchantments(HolderLookup.Provider registries) {
