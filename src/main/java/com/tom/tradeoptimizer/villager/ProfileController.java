@@ -76,8 +76,14 @@ public final class ProfileController {
                 state.update(profile);
                 TradeOptimizer.LOGGER.info("Imported {} existing offers from villager {} into legacy",
                         existing.size(), villager.getUUID());
-                // They've already got valid offers — just let them trade.
-                return true;
+                // They already have offers — open the merchant ourselves to keep
+                // every "filled villager" path consistent. Letting vanilla handle it
+                // here was the source of the 1-frame / no-open bug since vanilla's
+                // mobInteract silently no-ops in our flow.
+                applyToVillager(level, villager, profile);
+                villager.setTradingPlayer(player);
+                villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+                return false;
             }
             state.update(profile);
         } else if (!profile.profession().equals(profName)) {
