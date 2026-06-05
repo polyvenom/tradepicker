@@ -7,6 +7,7 @@ import com.tom.tradeoptimizer.trade.TradeKey;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.Holder;
@@ -25,19 +26,13 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Replaces the vanilla trade dance: the player sees every level-N trade for this villager
- * as cards, picks exactly the required number (vanilla = 2), and the server locks those
- * trades in at min cost.
+ * Picker UI: lists every level-N trade for a villager as cards, lets the player pick
+ * the required number (vanilla = 2), and ships the picks back to the server.
  *
- * Performance notes (audit, 2026-06):
- *  - Card labels are computed once in init() and cached in a parallel List<String>.
- *    Previously we were calling getHoverName() + StringBuilder per frame per visible card.
- *  - Title and status strings are cached. Status is rebuilt only when selection changes.
- *  - extractRenderState now allocates effectively nothing per frame (just text rendering).
- *
- * Visual:
- *  - For enchanted-book results we extract the stored enchantment + level and print it
- *    on the right side of the card so each book card is visually distinct.
+ * Search: an EditBox above the grid filters cards in real time. Match is case-insensitive
+ * and runs against the same tooltip text shown on hover, so typing "mending" surfaces just
+ * the Mending Book card, "sharp" surfaces all five Sharpness levels, "emerald" surfaces
+ * every emerald-buy trade, etc.
  */
 public final class TradePickerScreen extends Screen {
 
@@ -45,22 +40,24 @@ public final class TradePickerScreen extends Screen {
     private static final int CARD_HEIGHT = 24;
     private static final int CARD_GAP = 4;
     private static final int COLUMNS = 2;
-    private static final int TOP_PAD = 50;
+    private static final int TOP_PAD = 70; // raised to make room for the search box
     private static final int BOTTOM_RESERVED = 60;
-    /** Right-edge padding inside the card so the enchantment label doesn't overflow. */
     private static final int LABEL_RIGHT_PAD = 6;
 
     private final OpenPickerS2C data;
     private final Set<Integer> selectedIndices = new HashSet<>();
 
-    /** Pre-computed display data per trade — populated in init(), used per frame. */
+    /** Pre-computed display data per trade — never changes for this session. */
     private final List<String> cardLabels = new ArrayList<>();
     private final List<String> cardTooltips = new ArrayList<>();
 
+    /** Indices into data.available() filtered by current search text. */
+    private final List<Integer> filtered = new ArrayList<>();
+
+    private EditBox searchBox;
     private Button confirmBtn;
     private int scrollRow = 0;
 
-    // Cached strings (avoid per-frame String.format allocations)
     private String titleText = "";
     private String statusText = "";
 
@@ -73,6 +70,31 @@ public final class TradePickerScreen extends Screen {
     protected void init() {
         super.init();
 
+        // Pre-compute display data once.
+        cardLabels.clear();
+        cardTooltips.clear();
+        for (AvailableTrade trade : data.available()) {
+            cardLabels.add(buildCardLabel(trade.previewOffer()));
+            cardTooltips.add(buildTooltip(trade.previewOffer()));
+        }
+        rebuildFilter("");
+
+        titleText = String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
+                shortProf(data.profession()), levelName(data.level()), data.picksRequired());
+        rebuildStatusText();
+
+        // Search box (centered horizontally)
+        int boxW = COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP;
+        int boxX = (this.width - boxW) / 2;
+        searchBox = new EditBox(this.font, boxX, 44, boxW, 18, Component.literal("Search"));
+        searchBox.setMaxLength(48);
+        searchBox.setHint(Component.literal("Search trades (e.g. 'mending', 'sharp', 'emerald')"));
+        searchBox.setResponder(text -> {
+            scrollRow = 0;
+            rebuildFilter(text);
+        });
+        addRenderableWidget(searchBox);
+
         confirmBtn = Button.builder(Component.literal("Confirm"), b -> onConfirm())
                 .bounds(this.width / 2 - 84, this.height - 30, 80, 20)
                 .build();
@@ -82,19 +104,20 @@ public final class TradePickerScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> onClose())
                 .bounds(this.width / 2 + 4, this.height - 30, 80, 20)
                 .build());
+    }
 
-        // Pre-compute the display strings once. These never change for a given picker
-        // session, so there's no reason to rebuild them every frame.
-        cardLabels.clear();
-        cardTooltips.clear();
-        for (AvailableTrade trade : data.available()) {
-            cardLabels.add(buildCardLabel(trade.previewOffer()));
-            cardTooltips.add(buildTooltip(trade.previewOffer()));
+    private void rebuildFilter(String query) {
+        filtered.clear();
+        if (query == null || query.isBlank()) {
+            for (int i = 0; i < data.available().size(); i++) filtered.add(i);
+            return;
         }
-
-        titleText = String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
-                shortProf(data.profession()), levelName(data.level()), data.picksRequired());
-        rebuildStatusText();
+        String q = query.toLowerCase(Locale.ROOT).trim();
+        for (int i = 0; i < cardTooltips.size(); i++) {
+            if (cardTooltips.get(i).toLowerCase(Locale.ROOT).contains(q)) {
+                filtered.add(i);
+            }
+        }
     }
 
     private void rebuildStatusText() {
@@ -116,7 +139,7 @@ public final class TradePickerScreen extends Screen {
     }
 
     private int totalRows() {
-        int n = data.available().size();
+        int n = filtered.size();
         return (n + COLUMNS - 1) / COLUMNS;
     }
 
@@ -128,24 +151,24 @@ public final class TradePickerScreen extends Screen {
     public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
         super.extractRenderState(g, mouseX, mouseY, partial);
 
-        g.text(this.font, titleText, (this.width - this.font.width(titleText)) / 2, 20, 0xFFFFFFFF);
-        g.text(this.font, statusText, (this.width - this.font.width(statusText)) / 2, 34, 0xFFAAAAAA);
+        g.text(this.font, titleText, (this.width - this.font.width(titleText)) / 2, 16, 0xFFFFFFFF);
+        g.text(this.font, statusText, (this.width - this.font.width(statusText)) / 2, 30, 0xFFAAAAAA);
 
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
         int visible = visibleRows();
-        List<AvailableTrade> trades = data.available();
-        int firstIdx = scrollRow * COLUMNS;
-        int lastIdx = Math.min(trades.size(), firstIdx + visible * COLUMNS);
+        int firstSlot = scrollRow * COLUMNS;
+        int lastSlot = Math.min(filtered.size(), firstSlot + visible * COLUMNS);
 
         int hoveredIdx = -1;
-        for (int i = firstIdx; i < lastIdx; i++) {
-            int slot = i - firstIdx;
-            int col = slot % COLUMNS;
-            int row = slot / COLUMNS;
+        for (int slotPos = firstSlot; slotPos < lastSlot; slotPos++) {
+            int dataIdx = filtered.get(slotPos);
+            int posInPage = slotPos - firstSlot;
+            int col = posInPage % COLUMNS;
+            int row = posInPage / COLUMNS;
             int cx = gridStartX + col * (CARD_WIDTH + CARD_GAP);
             int cy = TOP_PAD + row * (CARD_HEIGHT + CARD_GAP);
-            if (drawCard(g, trades.get(i), cardLabels.get(i), cx, cy, i, mouseX, mouseY)) {
-                hoveredIdx = i;
+            if (drawCard(g, data.available().get(dataIdx), cardLabels.get(dataIdx), cx, cy, dataIdx, mouseX, mouseY)) {
+                hoveredIdx = dataIdx;
             }
         }
 
@@ -156,7 +179,10 @@ public final class TradePickerScreen extends Screen {
             g.text(this.font, label, tx, ty, 0xFFFFCC55);
         }
 
-        if (maxScroll() > 0) {
+        if (filtered.isEmpty()) {
+            String msg = "No trades match your search.";
+            g.text(this.font, msg, (this.width - this.font.width(msg)) / 2, TOP_PAD + 12, 0xFFAAAAAA);
+        } else if (maxScroll() > 0) {
             String hint = "Scroll for more (page " + (scrollRow + 1) + " / " + (maxScroll() + 1) + ")";
             int hintY = this.height - 50 - (hoveredIdx >= 0 ? 12 : 0);
             g.text(this.font, hint, (this.width - this.font.width(hint)) / 2, hintY, 0xFF888888);
@@ -197,8 +223,6 @@ public final class TradePickerScreen extends Screen {
         g.item(r, afterA, iy);
         g.itemDecorations(this.font, r, afterA, iy);
 
-        // Enchantment label on the right side of the card — this is what tells the
-        // player which book they're picking. Auto-truncate if it doesn't fit.
         if (!enchLabel.isEmpty()) {
             int labelX = afterA + 18;
             int maxWidth = (x + CARD_WIDTH - LABEL_RIGHT_PAD) - labelX;
@@ -209,7 +233,6 @@ public final class TradePickerScreen extends Screen {
         return hovered;
     }
 
-    /** Shorten with a trailing dot if it would overflow the available pixel width. */
     private String fitText(String text, int maxWidth) {
         if (this.font.width(text) <= maxWidth) return text;
         while (text.length() > 1 && this.font.width(text + ".") > maxWidth) {
@@ -218,14 +241,12 @@ public final class TradePickerScreen extends Screen {
         return text + ".";
     }
 
-    /** Card right-side label — only populated for enchanted books. */
     private static String buildCardLabel(MerchantOffer offer) {
         ItemStack result = offer.getResult();
         if (!result.is(Items.ENCHANTED_BOOK)) return "";
         return enchantmentDisplay(result);
     }
 
-    /** Full hover-line description. */
     private static String buildTooltip(MerchantOffer o) {
         StringBuilder sb = new StringBuilder();
         sb.append(o.getBaseCostA().getCount()).append("x ")
@@ -246,9 +267,6 @@ public final class TradePickerScreen extends Screen {
         return sb.toString();
     }
 
-    /** Pull the first stored enchantment off an item and format as "Name Roman".
-     *  Level is shown even for I so the user can distinguish cards (e.g. Sharpness I
-     *  vs Sharpness II vs Sharpness V). */
     private static String enchantmentDisplay(ItemStack stack) {
         ItemEnchantments enchants = stack.get(DataComponents.STORED_ENCHANTMENTS);
         if (enchants == null || enchants.isEmpty()) return "";
@@ -265,12 +283,8 @@ public final class TradePickerScreen extends Screen {
         boolean cap = true;
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
-            if (cap && Character.isLetter(c)) {
-                sb.append(Character.toUpperCase(c));
-                cap = false;
-            } else {
-                sb.append(c);
-            }
+            if (cap && Character.isLetter(c)) { sb.append(Character.toUpperCase(c)); cap = false; }
+            else { sb.append(c); }
             if (c == ' ') cap = true;
         }
         return sb.toString();
@@ -289,19 +303,19 @@ public final class TradePickerScreen extends Screen {
 
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
         int visible = visibleRows();
-        List<AvailableTrade> trades = data.available();
-        int firstIdx = scrollRow * COLUMNS;
-        int lastIdx = Math.min(trades.size(), firstIdx + visible * COLUMNS);
+        int firstSlot = scrollRow * COLUMNS;
+        int lastSlot = Math.min(filtered.size(), firstSlot + visible * COLUMNS);
 
         double mx = event.x(), my = event.y();
-        for (int i = firstIdx; i < lastIdx; i++) {
-            int slot = i - firstIdx;
-            int col = slot % COLUMNS;
-            int row = slot / COLUMNS;
+        for (int slotPos = firstSlot; slotPos < lastSlot; slotPos++) {
+            int dataIdx = filtered.get(slotPos);
+            int posInPage = slotPos - firstSlot;
+            int col = posInPage % COLUMNS;
+            int row = posInPage / COLUMNS;
             int cx = gridStartX + col * (CARD_WIDTH + CARD_GAP);
             int cy = TOP_PAD + row * (CARD_HEIGHT + CARD_GAP);
             if (mx >= cx && mx < cx + CARD_WIDTH && my >= cy && my < cy + CARD_HEIGHT) {
-                toggleSelection(i);
+                toggleSelection(dataIdx);
                 return true;
             }
         }

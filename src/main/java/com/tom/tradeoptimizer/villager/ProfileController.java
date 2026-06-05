@@ -132,8 +132,11 @@ public final class ProfileController {
 
         applyToVillager(sl, villager, profile);
 
-        player.sendSystemMessage(Component.literal(
-                "Trades locked in for level " + level + ". Right-click the villager to trade."));
+        // Auto-open the merchant right here so the user doesn't have to right-click
+        // again after confirming picks. Same setTradingPlayer + openTradingScreen
+        // pair we use in onInteract.
+        villager.setTradingPlayer(player);
+        villager.openTradingScreen(player, villager.getDisplayName(), level);
     }
 
     public static void onReset(ServerPlayer player, UUID villagerId) {
