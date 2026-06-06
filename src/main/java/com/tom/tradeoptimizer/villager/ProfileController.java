@@ -263,7 +263,7 @@ public final class ProfileController {
 
         for (int lvl = 1; lvl <= currentLevel; lvl++) {
             for (TradeKey key : profile.picksFor(lvl)) {
-                Optional<MerchantOffer> offer = OfferFactory.generate(level, villager, key);
+                Optional<MerchantOffer> offer = OfferFactory.generate(level, villager, key, lvl);
                 if (offer.isEmpty()) {
                     TradeOptimizer.LOGGER.warn("[apply] generate({}) lvl={} returned EMPTY",
                             key.id(), lvl);

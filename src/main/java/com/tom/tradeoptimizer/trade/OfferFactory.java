@@ -12,7 +12,6 @@ import net.minecraft.tags.EnchantmentTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.Unit;
 import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.entity.npc.villager.VillagerData;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
@@ -80,9 +79,9 @@ public final class OfferFactory {
         return out;
     }
 
-    public static Optional<MerchantOffer> generate(ServerLevel level, Villager villager, TradeKey key) {
+    public static Optional<MerchantOffer> generate(ServerLevel level, Villager villager, TradeKey key, int merchantLevel) {
         if (isBookKey(key)) {
-            return generateBookOffer(level, villager, key);
+            return generateBookOffer(level, villager, key, merchantLevel);
         }
         HolderLookup.Provider registries = level.registryAccess();
         Optional<Holder.Reference<VillagerTrade>> ref =
@@ -132,20 +131,16 @@ public final class OfferFactory {
         return out;
     }
 
-    private static Optional<MerchantOffer> generateBookOffer(ServerLevel level, Villager villager, TradeKey synthetic) {
+    /** Villager merchant levels run 1 (Novice) .. 5 (Master). */
+    private static final int MAX_MERCHANT_LEVEL = 5;
+
+    private static Optional<MerchantOffer> generateBookOffer(ServerLevel level, Villager villager,
+                                                             TradeKey synthetic, int merchantLevel) {
         SyntheticBookKey parsed = parseSyntheticBook(synthetic);
         if (parsed == null) return Optional.empty();
 
         HolderLookup.Provider registries = level.registryAccess();
-        VillagerData data = villager.getVillagerData();
-        VillagerProfession prof = data.profession().value();
-        ResourceKey<TradeSet> tradeSetKey = prof.getTrades(data.level());
-        if (tradeSetKey == null) return Optional.empty();
-
-        Optional<Holder.Reference<TradeSet>> setRef =
-                registries.lookupOrThrow(Registries.TRADE_SET).get(tradeSetKey);
-        if (setRef.isEmpty()) return Optional.empty();
-        TradeSet tradeSet = setRef.get().value();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
 
         // Find enchantment index + min level in the tradeable pool
         List<Holder<Enchantment>> tradeable = tradeableEnchantments(registries);
@@ -162,35 +157,47 @@ public final class OfferFactory {
         if (enchIdx < 0) return Optional.empty();
         int levelOffset = parsed.level - minLevel;
 
-        // Use any book-producing trade in this level's set as the template
-        int triedCount = 0;
-        for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
-            triedCount++;
-            String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
-            try {
-                VillagerTrade trade = holder.value();
-                LootContext ctx = buildContext(level, villager, tradeSet,
-                        new IndexBiasedRandomSource(enchIdx, levelOffset));
-                MerchantOffer offer = trade.getOffer(ctx);
-                if (offer == null) {
-                    TradeOptimizer.LOGGER.debug("[book-regen] {} returned null", tradeName);
-                    continue;
+        // A book trade must be regenerated from a book-producing template. That template
+        // has to come from a trade set that actually CONTAINS a book trade. The book was
+        // picked at `merchantLevel`, so that set is the natural source — but a villager
+        // may have advanced to a higher level whose set has NO book trade (e.g. a
+        // librarian's master level sells candles, not books). Earlier this looked up the
+        // villager's CURRENT level, so once it hit such a level every previously-picked
+        // book silently failed to regenerate and got dropped. Try the pick's own level
+        // first, then fall back to scanning every level for a usable book template.
+        List<Integer> candidateLevels = new ArrayList<>();
+        if (merchantLevel >= 1 && merchantLevel <= MAX_MERCHANT_LEVEL) candidateLevels.add(merchantLevel);
+        for (int lvl = 1; lvl <= MAX_MERCHANT_LEVEL; lvl++) {
+            if (!candidateLevels.contains(lvl)) candidateLevels.add(lvl);
+        }
+
+        for (int lvl : candidateLevels) {
+            ResourceKey<TradeSet> tradeSetKey = prof.getTrades(lvl);
+            if (tradeSetKey == null) continue;
+            Optional<Holder.Reference<TradeSet>> setRef =
+                    registries.lookupOrThrow(Registries.TRADE_SET).get(tradeSetKey);
+            if (setRef.isEmpty()) continue;
+            TradeSet tradeSet = setRef.get().value();
+
+            for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
+                String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
+                try {
+                    VillagerTrade trade = holder.value();
+                    LootContext ctx = buildContext(level, villager, tradeSet,
+                            new IndexBiasedRandomSource(enchIdx, levelOffset));
+                    MerchantOffer offer = trade.getOffer(ctx);
+                    if (offer == null || !offer.getResult().is(Items.ENCHANTED_BOOK)) continue;
+                    TradeOptimizer.LOGGER.info("[book-regen] resolved {} -> {} via template {} (set level {})",
+                            synthetic.id(), offer.getResult(), tradeName, lvl);
+                    return Optional.of(offer);
+                } catch (Exception e) {
+                    TradeOptimizer.LOGGER.warn("[book-regen] template {} threw while regenerating {}",
+                            tradeName, synthetic.id(), e);
                 }
-                if (!offer.getResult().is(Items.ENCHANTED_BOOK)) {
-                    TradeOptimizer.LOGGER.debug("[book-regen] {} produced non-book {}",
-                            tradeName, offer.getResult().getItem());
-                    continue;
-                }
-                TradeOptimizer.LOGGER.info("[book-regen] resolved {} -> {} via template {}",
-                        synthetic.id(), offer.getResult(), tradeName);
-                return Optional.of(offer);
-            } catch (Exception e) {
-                TradeOptimizer.LOGGER.warn("[book-regen] template {} threw while regenerating {}",
-                        tradeName, synthetic.id(), e);
             }
         }
-        TradeOptimizer.LOGGER.warn("[book-regen] FAILED to regenerate {} after trying {} templates",
-                synthetic.id(), triedCount);
+        TradeOptimizer.LOGGER.warn("[book-regen] FAILED to regenerate {} (no book template found at any level)",
+                synthetic.id());
         return Optional.empty();
     }
 
