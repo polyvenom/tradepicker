@@ -201,6 +201,32 @@ public final class ProfileController {
                     "No trades available for " + profile.profession() + " level " + merchantLevel));
             return;
         }
+
+        // No-choice fast path. Vanilla always assigns 2 trades per level. When the pool
+        // for this level has 2 or fewer options there's nothing to choose: with 2 the
+        // player would be forced to take both, and with 1 the picker (which requires 2
+        // selections) could never be satisfied — the villager would be stuck and unable
+        // to advance. Example: a toolsmith's master level only offers the diamond
+        // pickaxe. So skip the picker entirely, apply every available option as the
+        // picks, and open the merchant directly. This only ever fires when size <= 2,
+        // so a level with 3+ genuine choices always still shows the picker.
+        if (available.size() <= 2) {
+            List<TradeKey> autoPicks = new ArrayList<>(available.size());
+            for (AvailableTrade trade : available) autoPicks.add(trade.key());
+
+            VillagerProfileState state = VillagerProfileState.get(level);
+            profile.setPicks(merchantLevel, autoPicks);
+            state.update(profile);
+
+            applyToVillager(level, villager, profile, player);
+            villager.setTradingPlayer(player);
+            villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+
+            TradeOptimizer.LOGGER.info("Auto-progressed {} level {}: {} option(s), no choice needed",
+                    profile.profession(), merchantLevel, available.size());
+            return;
+        }
+
         TradeOptimizer.LOGGER.info("Picker for {} level {}: {} trade options",
                 profile.profession(), merchantLevel, available.size());
 
