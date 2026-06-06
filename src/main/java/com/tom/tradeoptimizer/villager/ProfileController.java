@@ -9,7 +9,9 @@ import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.Holder;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
@@ -31,6 +33,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Server-side orchestrator for the picker flow.
@@ -59,10 +62,21 @@ public final class ProfileController {
     }
 
     /**
-     * Called on every right-click of a villager. Either applies picks to the villager
-     * (so vanilla's mob interact will then open the merchant) or sends the picker
-     * payload to the client. Return value retained for future use; the listener
-     * always returns PASS regardless.
+     * Players whose client lacks the mod, who we've already nudged once. Stops the
+     * fallback notice from spamming on every right-click. Lives for the server's lifetime
+     * (one UUID per such player — negligible).
+     */
+    private static final Set<UUID> warnedNoModClients = ConcurrentHashMap.newKeySet();
+
+    /**
+     * Called on every right-click of a villager. Either opens the merchant menu directly
+     * (after making sure the offers are in place) or sends the picker payload to the
+     * client.
+     *
+     * Returns true only when there was nothing for us to do (nitwit / unemployed villager,
+     * or a client without the mod) so the listener can PASS to vanilla. Returns false when
+     * we handled the interaction (picker sent, or merchant opened by us) so the listener
+     * returns SUCCESS.
      */
     public static boolean onInteract(ServerPlayer player, Villager villager) {
         ServerLevel level = player.level();
@@ -76,6 +90,19 @@ public final class ProfileController {
             return true;
         }
 
+        // If the player's client doesn't have Trade Picker, we can't show the picker.
+        // Intercepting the click would leave the villager doing nothing at all, so step
+        // aside and let vanilla handle trading normally. Nudge the player once (per server
+        // session) so they understand why picking isn't available.
+        if (!ServerPlayNetworking.canSend(player, NetworkPayloads.OPEN_PICKER_TYPE)) {
+            if (warnedNoModClients.add(player.getUUID())) {
+                player.sendSystemMessage(Component.literal(
+                        "Trade Picker is on the server but not your client — install it to choose "
+                                + "villager trades. Falling back to normal trading."));
+            }
+            return true; // PASS to vanilla
+        }
+
         VillagerProfileState state = VillagerProfileState.get(level);
         VillagerProfile profile = state.get(villager.getUUID());
 
@@ -85,15 +112,24 @@ public final class ProfileController {
                 profile == null ? "null" : ("picks=" + profile.picks().keySet() + " legacy=" + profile.legacy().keySet()),
                 Thread.currentThread().getName());
 
-        // Case 2: pre-existing villager with vanilla offers, no profile.
-        // Import existing offers into legacy buckets so the player keeps them.
+        // Case 2: no profile yet. Two sub-cases.
+        //   2a — TRULY FRESH villager: level 1 and zero XP means vanilla rolled the
+        //        starter trades but the player has never used them. Treat the random
+        //        rolls as throwaway and open the picker so the player chooses their
+        //        first two trades. Anything else and we'd be hiding the picker behind
+        //        a Reset click for the most common "I just gave them a workstation"
+        //        case.
+        //   2b — PRE-EXISTING villager: level 2+, or level 1 with XP > 0 (they've
+        //        already traded a bit). Import what's there as legacy so their progress
+        //        survives the mod being installed, then open the merchant.
         if (profile == null) {
             // First interaction claims ownership. Only the owner (or an op) may later
             // reset this villager — stops a passerby from wiping a base's villagers.
             profile = VillagerProfile.fresh(villager.getUUID(), profName, player.getUUID());
             MerchantOffers existing = villager.getOffers();
-            if (existing != null && !existing.isEmpty()) {
-                importExistingOffers(profile, existing, merchantLevel);
+            boolean trulyFresh = merchantLevel == 1 && villager.getVillagerXp() == 0;
+            if (existing != null && !existing.isEmpty() && !trulyFresh) {
+                importExistingOffers(level, villager, profile, existing, merchantLevel);
                 state.update(profile);
                 TradeOptimizer.LOGGER.info("Imported {} existing offers from villager {} into legacy (owner={})",
                         existing.size(), villager.getUUID(), player.getName().getString());
@@ -105,6 +141,14 @@ public final class ProfileController {
                 villager.setTradingPlayer(player);
                 villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
                 return false;
+            }
+            if (trulyFresh && existing != null && !existing.isEmpty()) {
+                // Wipe the vanilla-rolled offers before the picker opens, otherwise the
+                // player would see them flash for a tick. They'll be replaced by the
+                // player's picks once they hit Confirm.
+                villager.setOffers(new MerchantOffers());
+                TradeOptimizer.LOGGER.info("Truly fresh villager {} — discarding vanilla starter rolls, opening picker (owner={})",
+                        villager.getUUID(), player.getName().getString());
             }
             state.update(profile);
         } else if (!profile.profession().equals(profName)) {
@@ -127,14 +171,25 @@ public final class ProfileController {
             return false;
         }
 
-        // Has entries (picks or legacy) for current level — ensure live offers match
-        // and open the merchant menu directly. Order matters: setTradingPlayer FIRST,
-        // then openTradingScreen. MerchantMenu.stillValid() returns
-        // (merchant.getTradingPlayer() == player). If tradingPlayer is null when
-        // vanilla validates the container on its next tick, it sends
-        // ClientboundContainerClosePacket and the menu disappears after 1 frame.
+        // Has entries (picks or legacy) for the current level — open the merchant menu
+        // directly. Order matters: setTradingPlayer FIRST, then openTradingScreen.
+        // MerchantMenu.stillValid() returns (merchant.getTradingPlayer() == player). If
+        // tradingPlayer is null when vanilla validates the container on its next tick, it
+        // sends ClientboundContainerClosePacket and the menu disappears after 1 frame.
         // That's exactly what `startTrading` does in vanilla, just spelled out here.
-        applyToVillager(level, villager, profile, player);
+        //
+        // We do NOT rebuild the offers here. Regenerating them on every open reset each
+        // trade's use-count, so picked trades restocked instantly and bypassed vanilla's
+        // cooldown. The offers were already built when the picks were chosen and vanilla
+        // persists them with the villager, so reuse what's live and only refresh
+        // reputation / Hero-of-the-Village discounts. Rebuild only if they're somehow
+        // missing (e.g. another mechanic wiped them).
+        MerchantOffers live = villager.getOffers();
+        if (live == null || live.isEmpty()) {
+            applyToVillager(level, villager, profile, player);
+        } else {
+            refreshSpecialPrices(villager, player);
+        }
         villager.setTradingPlayer(player);
         villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
         return false;
@@ -284,17 +339,55 @@ public final class ProfileController {
     // Internal helpers
     // -------------------------------------------------------------------------
 
-    /** Split a flat MerchantOffers list into 2-per-level legacy buckets. */
-    private static void importExistingOffers(VillagerProfile profile, MerchantOffers existing, int merchantLevel) {
-        // Vanilla generates 2 offers per level, in order: indices 0..1 = level 1, 2..3 = level 2, etc.
-        int perLevel = 2;
-        for (int lvl = 1; lvl <= merchantLevel; lvl++) {
-            int start = (lvl - 1) * perLevel;
-            int end = Math.min(existing.size(), start + perLevel);
-            if (start >= end) continue;
-            List<MerchantOffer> bucket = new ArrayList<>(existing.subList(start, end));
+    /**
+     * Split a flat MerchantOffers list into per-level legacy buckets.
+     *
+     * Vanilla appends each level's trades in order (level 1 first, then level 2, ...), but
+     * the count per level is NOT always 2: a level whose trade pool is smaller produces
+     * fewer (e.g. a toolsmith's master level offers only the diamond pickaxe), and data
+     * packs / mods can change counts too. The old code assumed a flat 2-per-level grid, so
+     * any villager that didn't match it got trades filed at the wrong level — and offers
+     * past the assumed grid were dropped entirely.
+     *
+     * Instead we ask each level's trade set how many trades it can yield (capped at
+     * vanilla's per-level maximum) to walk the flat list, and let the villager's current
+     * (highest) level act as a catch-all so no offer is ever lost.
+     */
+    private static void importExistingOffers(ServerLevel level, Villager villager,
+                                             VillagerProfile profile, MerchantOffers existing, int merchantLevel) {
+        HolderLookup.Provider registries = level.registryAccess();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
+
+        int total = existing.size();
+        int idx = 0;
+        for (int lvl = 1; lvl <= merchantLevel && idx < total; lvl++) {
+            int count;
+            if (lvl == merchantLevel) {
+                // Last (current) level takes everything still unassigned, so a villager
+                // with more offers than the expected grid never loses any.
+                count = total - idx;
+            } else {
+                count = Math.min(perLevelTradeCount(registries, prof, lvl), total - idx);
+            }
+            if (count <= 0) continue;
+            List<MerchantOffer> bucket = new ArrayList<>(existing.subList(idx, idx + count));
             profile.setLegacy(lvl, bucket);
+            idx += count;
         }
+    }
+
+    /** Vanilla generates at most this many trades per merchant level. */
+    private static final int MAX_TRADES_PER_LEVEL = 2;
+
+    /** How many offers a level is expected to contribute: its trade-set size, capped. */
+    private static int perLevelTradeCount(HolderLookup.Provider registries, VillagerProfession prof, int level) {
+        ResourceKey<TradeSet> key = prof.getTrades(level);
+        if (key == null) return MAX_TRADES_PER_LEVEL;
+        Optional<Holder.Reference<TradeSet>> setRef =
+                registries.lookupOrThrow(Registries.TRADE_SET).get(key);
+        if (setRef.isEmpty()) return MAX_TRADES_PER_LEVEL;
+        int entries = setRef.get().value().getTrades().size();
+        return Math.min(MAX_TRADES_PER_LEVEL, entries);
     }
 
     private static void sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
@@ -394,22 +487,30 @@ public final class ProfileController {
         }
 
         villager.setOffers(offers);
+        refreshSpecialPrices(villager, player);
+    }
 
-        // Reputation and Hero-of-the-Village discounts are computed by vanilla's
-        // Villager.updateSpecialPrices(player), which writes each discount into the
-        // offer's specialPriceDiff. Vanilla only calls it from startTrading(); because
-        // we open the merchant manually (setTradingPlayer + openTradingScreen, to dodge
-        // the 1-frame menu bug) that call was being skipped, so curing / Hero discounts
-        // never applied. Reproduce it here, mirroring vanilla's startTrading order.
-        //
-        // updateSpecialPrices ACCUMULATES (it adds to specialPriceDiff, never resets),
-        // so clear each offer first — otherwise re-opening a villager whose legacy
-        // offers are reused would stack the discount every time.
-        if (player != null) {
-            for (MerchantOffer offer : offers) {
-                offer.resetSpecialPriceDiff();
-            }
-            ((VillagerInvoker) villager).tradeoptimizer$updateSpecialPrices(player);
+    /**
+     * Re-apply reputation and Hero-of-the-Village discounts to the villager's current
+     * offers, mirroring vanilla's startTrading order.
+     *
+     * Vanilla computes these in Villager.updateSpecialPrices(player), writing each
+     * discount into the offer's specialPriceDiff, and only calls it from startTrading().
+     * Because we open the merchant manually (setTradingPlayer + openTradingScreen, to
+     * dodge the 1-frame menu bug) that call was being skipped, so curing / Hero discounts
+     * never applied. We reproduce it here.
+     *
+     * updateSpecialPrices ACCUMULATES (it adds to specialPriceDiff, never resets), so we
+     * clear each offer first — otherwise re-opening a villager would stack the discount
+     * every time.
+     */
+    private static void refreshSpecialPrices(Villager villager, ServerPlayer player) {
+        if (player == null) return;
+        MerchantOffers offers = villager.getOffers();
+        if (offers == null) return;
+        for (MerchantOffer offer : offers) {
+            offer.resetSpecialPriceDiff();
         }
+        ((VillagerInvoker) villager).tradeoptimizer$updateSpecialPrices(player);
     }
 }

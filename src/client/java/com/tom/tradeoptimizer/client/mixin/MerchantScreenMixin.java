@@ -33,6 +33,11 @@ public abstract class MerchantScreenMixin extends AbstractContainerScreen<Mercha
 
     @Inject(method = "init", at = @At("TAIL"))
     private void tradeoptimizer$addResetButton(CallbackInfo ci) {
+        // Only real villagers can be reset by this mod. Wandering Traders share this
+        // screen but aren't resettable — and showing the button there risks resetting a
+        // villager the player clicked earlier (its UUID would still be the last one set).
+        if (!ClientLastVillager.wasVillager() || ClientLastVillager.get() == null) return;
+
         // Place a "Reset" button at the top-right corner just above the trade window.
         int btnW = 50;
         int btnH = 12;

@@ -37,17 +37,6 @@ public final class VillagerProfileState extends SavedData {
         return state;
     }
 
-    public VillagerProfile getOrCreate(UUID id, String profession) {
-        VillagerProfile p = profiles.get(id);
-        if (p == null || !p.profession().equals(profession)) {
-            // Profession changed (e.g. villager got a new job) — wipe the profile.
-            p = VillagerProfile.fresh(id, profession);
-            profiles.put(id, p);
-            setDirty();
-        }
-        return p;
-    }
-
     public VillagerProfile get(UUID id) {
         return profiles.get(id);
     }
@@ -55,10 +44,6 @@ public final class VillagerProfileState extends SavedData {
     public void update(VillagerProfile p) {
         profiles.put(p.id(), p);
         setDirty();
-    }
-
-    public void remove(UUID id) {
-        if (profiles.remove(id) != null) setDirty();
     }
 
     public static VillagerProfileState get(ServerLevel level) {

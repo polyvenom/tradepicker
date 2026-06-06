@@ -85,11 +85,6 @@ public record VillagerProfile(
         legacy.clear();
     }
 
-    /** True if no level has been picked or imported yet. */
-    public boolean isEmpty() {
-        return picks.isEmpty() && legacy.isEmpty();
-    }
-
     public static VillagerProfile fresh(UUID id, String profession) {
         return new VillagerProfile(id, profession, Optional.empty(), new HashMap<>(), new HashMap<>());
     }

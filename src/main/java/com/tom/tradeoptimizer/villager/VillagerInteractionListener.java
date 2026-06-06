@@ -9,16 +9,17 @@ import net.minecraft.world.entity.npc.villager.Villager;
 /**
  * Hooks the player's right-click on a villager and delegates to ProfileController.
  *
- * Important: we ALWAYS return InteractionResult.PASS so vanilla's mob interact runs
- * its full course. If the villager has offers (picks already locked in), vanilla
- * opens the merchant menu normally. If the villager has none yet, vanilla's mob
- * interact is a harmless no-op and our picker S2C arrives a tick later to open the
- * picker on top.
+ * Returns SUCCESS when we handled the interaction — either we sent the picker to the
+ * client or we opened the merchant menu ourselves. SUCCESS acknowledges the click so
+ * the client's prediction queue clears and follow-up right-clicks aren't swallowed.
+ * Returns PASS only when we did nothing (nitwit / unemployed villager, a non-villager
+ * entity, or a client without the mod), so vanilla's normal mob-interact can run.
  *
- * Earlier versions used SUCCESS / SUCCESS_SERVER to cancel vanilla. That caused
- * Mojang's client-side prediction queue to get stuck on the entity (subsequent
- * right-clicks were swallowed until the player interacted with a different entity
- * to clear the prediction). Returning PASS avoids the prediction system entirely.
+ * We deliberately never use SUCCESS_SERVER. An earlier version used it to cancel
+ * vanilla, which left Mojang's client-side prediction queue stuck on the entity
+ * (subsequent right-clicks were swallowed until the player interacted with a different
+ * entity). Because we open the merchant ourselves rather than letting vanilla do it,
+ * plain SUCCESS is enough and sidesteps that prediction snag.
  */
 public final class VillagerInteractionListener {
     private VillagerInteractionListener() {}

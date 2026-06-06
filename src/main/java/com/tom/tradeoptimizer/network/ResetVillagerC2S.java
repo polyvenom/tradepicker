@@ -8,8 +8,9 @@ import java.util.UUID;
 
 /**
  * Client -> server: please reset this villager — clear all picks, drop XP/level back
- * to Novice, and re-open the picker. Client UI confirms before sending so this can't
- * fire by accident.
+ * to Novice, and wipe its current offers. The server replies with a chat message
+ * telling the player to right-click again to start picking (it does NOT auto-open the
+ * picker). The client UI confirms before sending so this can't fire by accident.
  */
 public record ResetVillagerC2S(UUID villagerId) implements CustomPacketPayload {
 

@@ -218,24 +218,50 @@ public final class OfferFactory {
     }
 
     private static SyntheticBookKey parseSyntheticBook(TradeKey key) {
-        // New format: "book/<ns>/<path>/L<level>"
-        // Old format: "book/<ns>/<path>" — kept for backward-compat with profiles
-        // saved before per-level expansion landed; default to level 1.
-        String[] parts = key.id().getPath().split("/");
-        if (parts.length == 3) {
-            Identifier enchId = Identifier.fromNamespaceAndPath(parts[1], parts[2]);
-            return new SyntheticBookKey(enchId, 1);
-        }
-        if (parts.length == 4 && parts[3].startsWith("L")) {
+        // Stored format:  book/<ench_ns>/<ench_path>/L<level>
+        //   <ench_path> may itself contain '/', because modded enchantments are allowed
+        //   slashes in their path — so we can't assume a fixed segment count (the old
+        //   split-into-3-or-4 logic silently dropped any such book pick).
+        // Legacy format:  book/<ench_ns>/<ench_path>   (no trailing L<level>) — pre-dates
+        //   per-level expansion; treated as level 1.
+        // The level marker uses an uppercase 'L', which can never appear in a real
+        // (lowercase-only) Identifier path segment, so it's unambiguous to detect.
+        String path = key.id().getPath();
+        if (!path.startsWith(BOOK_PREFIX)) return null;
+
+        String[] parts = path.substring(BOOK_PREFIX.length()).split("/");
+        if (parts.length < 2) return null; // need at least <ns> and one path segment
+
+        String ns = parts[0];
+        int lastIdx = parts.length - 1;
+
+        int level = 1;
+        int pathEndExclusive = parts.length;
+        String last = parts[lastIdx];
+        // A trailing "L<number>" segment is the level marker — only when there's a real
+        // path segment before it (lastIdx >= 2), so a 2-part legacy key isn't misread.
+        if (lastIdx >= 2 && last.length() > 1 && last.charAt(0) == 'L') {
             try {
-                int level = Integer.parseInt(parts[3].substring(1));
-                Identifier enchId = Identifier.fromNamespaceAndPath(parts[1], parts[2]);
-                return new SyntheticBookKey(enchId, level);
+                level = Integer.parseInt(last.substring(1));
+                pathEndExclusive = lastIdx; // drop the marker; the rest is the ench path
             } catch (NumberFormatException e) {
-                return null;
+                return null; // looked like a marker but wasn't a number — malformed
             }
         }
-        return null;
+
+        StringBuilder enchPath = new StringBuilder();
+        for (int i = 1; i < pathEndExclusive; i++) {
+            if (i > 1) enchPath.append('/');
+            enchPath.append(parts[i]);
+        }
+        if (enchPath.length() == 0) return null;
+
+        try {
+            Identifier enchId = Identifier.fromNamespaceAndPath(ns, enchPath.toString());
+            return new SyntheticBookKey(enchId, level);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private static List<Holder<Enchantment>> tradeableEnchantments(HolderLookup.Provider registries) {
