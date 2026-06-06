@@ -1,33 +1,95 @@
 # Trade Picker
 
-Stop breaking lecterns.
+**Pick the exact villager trades you want. No cycling. No luck.**
 
-In vanilla Minecraft, securing the villager trades you want requires a tedious, non-skill-based loop: placing and breaking a workstation repeatedly until the RNG generates the desired result. If you are going to minmax your trades anyway, the workstation-breaking loop is simply a time sink. 
+Trade Picker replaces the workstation-cycling grind with a direct choice screen. Right-click any villager and instead of getting whatever trades the RNG decided, you see every trade that villager could possibly offer at its current level — then you pick the two you want. Your picks lock in permanently at the cheapest possible price.
 
-Unlike trade-cycling mods that automate the dice roll, **Trade Picker** eliminates the RNG entirely. It allows you to directly select the exact vanilla trades you want the first time, every time.
+[Modrinth](https://modrinth.com/mod/trade-picker) · [CurseForge](https://www.curseforge.com/minecraft/mc-mods/trade-picker) · [Ko-fi](https://ko-fi.com/polyvenom)
 
-## How It Works
+---
 
-Right-click a villager and, instead of the standard random trade screen, you will be presented with a picker interface. This interface displays every trade that villager could possibly offer at its current level, all set to the lowest vanilla price. 
+## How it works
 
-Choose two, confirm, and those become the villager's permanent trades. No breaking workstations, no re-rolling, no luck.
+Right-click a villager. Instead of the standard merchant screen with whatever trades RNG assigned, you get a picker grid showing every trade that profession can offer at that level. Choose two, hit Confirm, and those trades are now that villager's permanent trades — always at vanilla's minimum price.
 
-### Key Features
+When the villager levels up, the picker opens again for the new tier. You stay in control all the way from Novice to Master.
 
-*   **Direct Selection:** Every time a villager levels up (Novice, Apprentice, Journeyman, Expert, Master), you pick its next two trades.
-*   **Fully Expanded Enchantment Support:** For Librarians, the picker lists *every* tradeable enchantment at every level (e.g., Mending, Sharpness I–V, Fortune III) as its own distinct option.
-*   **Search Functionality:** Filter the list instantly. Type "mending", "sharp", or "emerald" to find what you need without scrolling through hundreds of books.
-*   **Best Vanilla Pricing:** Prices are hardcoded to vanilla's absolute minimum roll. In-game reputation discounts (Curing, Hero of the Village) still apply normally on top of these base prices.
-*   **Reset Button:** A built-in reset option in the trade screen allows you to wipe a villager back to Novice (with a confirmation prompt) so you can re-pick from scratch if your needs change.
+**For librarians specifically:** the picker lists every tradeable enchantment at every level as its own card — Mending, Sharpness I through V, Fortune III, Silk Touch, every Treasure book — with a search box so you can filter by name. No more cycling through dozens of rerolls hoping for the right one.
 
-## Technical Details & Compatibility
+---
 
-When you interact with a villager that requires new trades, the server sends the picker GUI to your client. Once you make your selection, the server generates those exact trades using vanilla's own trade-generation pipeline—ensuring strict adherence to vanilla mechanics without homebrew price tables. Choices are saved per-villager in the world data and persist through reloads.
+## Features
 
-*   **Vanilla Friendly:** Does not add new items, blocks, or custom recipes. It only bypasses the RNG selection process.
-*   **Compatibility:** Uses only vanilla rendering and a single merchant-screen mixin. It is highly compatible with optimization and UI mods like Sodium, Iris, Lithium, and ModMenu.
-*   **Conflicts:** Incompatible with other trade-cycling mods. Uninstall them before using this mod.
-*   **Requirements:** Needs to be installed on **both client and server** (single-player counts as both). Requires Fabric Loader 0.19+, Fabric API, Minecraft 26.1.2, and Java 25.
+- **Direct trade selection** — choose villager trades from a full list instead of rolling the dice
+- **Librarian book picker** — every enchantment × level combination listed individually; search by name
+- **Always minimum price** — all offers generated at vanilla's lowest possible cost; reputation discounts (curing, Hero of the Village) stack on top normally
+- **Levels up with your villager** — picker opens at each new level (Novice → Apprentice → Journeyman → Expert → Master)
+- **Restock works correctly** — picked trades restock on vanilla's normal schedule; villagers have to sleep and return to their workstation
+- **Reset button** — wipe a villager back to Novice from any merchant screen (confirmation prompt included)
+- **Multiplayer ownership** — first player to interact claims the villager; only the owner or a server op can reset or change trades
+- **Server-only fallback** — players without the mod installed fall back to vanilla trading instead of a silent failure
+
+---
+
+## FAQ
+
+**Does this work on servers?**  
+Yes. Install on both server and client. If a player joins without the mod, they fall back to vanilla trading normally and get a one-time message explaining why.
+
+**Will it conflict with my other mods?**  
+It's compatible with Sodium, Iris, Lithium, ModMenu, EMI, JEI, REI, and most other Fabric mods. Don't install alongside other trade-cycling mods (VillagerTradefix, Trade Cycling, etc.) — they're solving the same problem a different way and will likely conflict.
+
+**Do picks survive world reload / server restart?**  
+Yes. Picks are saved per-villager in world data and survive restarts, chunk unloads, and updates.
+
+**What happens to villagers I've already traded with before installing the mod?**  
+Their existing trades are imported as-is and preserved. The picker only activates for unfilled levels going forward.
+
+**Does it affect prices?**  
+Prices are locked to vanilla's minimum roll. Curing a zombie villager or earning Hero of the Village discounts still apply on top of that, exactly as in vanilla.
+
+**Can I choose villager trades in creative / single-player?**  
+Yes — it works in any game mode.
+
+**Is it compatible with data packs that add custom villager trades?**  
+Yes. The picker enumerates the actual trade set registered for each profession and level, so custom trades from data packs appear in the picker alongside vanilla ones.
+
+---
+
+## Why not a trade cycling mod?
+
+Trade cycling mods automate the workstation-breaking loop: they break and replace your lectern hundreds of times automatically until a librarian rolls the trade you want. It's faster than doing it by hand, but it's still RNG — you're just waiting on a machine instead of doing it yourself.
+
+Trade Picker skips the RNG entirely. You choose which trades a villager gets directly. There's no cycling, no waiting, no probability involved. If you want Mending, you pick Mending. If you want Fortune III, you pick Fortune III. First try, every time.
+
+---
+
+## Install
+
+1. Install [Fabric Loader](https://fabricmc.net/use/installer/) for **Minecraft 26.1.2**
+2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
+3. Drop the Trade Picker `.jar` into your `mods` folder
+4. On a server: install on both server and client
+
+No config files. No setup. Right-click a villager and it works.
+
+---
+
+## Building from source
+
+```bash
+git clone https://github.com/polyvenom/tradepicker.git
+cd tradepicker
+./gradlew build
+# jar at build/libs/tradeoptimizer-<version>.jar
+```
+
+Requires Java 25. Uses Fabric Loom, Mojang mappings, Fabric API `0.149.1+26.1.2`.
+
+---
 
 ## License
-Released into the Public Domain — CC0 1.0.
+
+[CC0 1.0 Universal](LICENSE) — public domain. Do whatever you want with it.
+
+**Author:** polyvenom · [Ko-fi](https://ko-fi.com/polyvenom) · [Issues](https://github.com/polyvenom/tradepicker/issues)
