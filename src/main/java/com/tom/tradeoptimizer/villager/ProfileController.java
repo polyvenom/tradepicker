@@ -1,6 +1,7 @@
 package com.tom.tradeoptimizer.villager;
 
 import com.tom.tradeoptimizer.TradeOptimizer;
+import com.tom.tradeoptimizer.mixin.VillagerInvoker;
 import com.tom.tradeoptimizer.network.NetworkPayloads;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
@@ -80,7 +81,7 @@ public final class ProfileController {
                 // every "filled villager" path consistent. Letting vanilla handle it
                 // here was the source of the 1-frame / no-open bug since vanilla's
                 // mobInteract silently no-ops in our flow.
-                applyToVillager(level, villager, profile);
+                applyToVillager(level, villager, profile, player);
                 villager.setTradingPlayer(player);
                 villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
                 return false;
@@ -105,7 +106,7 @@ public final class ProfileController {
         // vanilla validates the container on its next tick, it sends
         // ClientboundContainerClosePacket and the menu disappears after 1 frame.
         // That's exactly what `startTrading` does in vanilla, just spelled out here.
-        applyToVillager(level, villager, profile);
+        applyToVillager(level, villager, profile, player);
         villager.setTradingPlayer(player);
         villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
         return false;
@@ -130,7 +131,7 @@ public final class ProfileController {
         profile.setPicks(level, picks);
         state.update(profile);
 
-        applyToVillager(sl, villager, profile);
+        applyToVillager(sl, villager, profile, player);
 
         // Auto-open the merchant right here so the user doesn't have to right-click
         // again after confirming picks. Same setTradingPlayer + openTradingScreen
@@ -227,8 +228,10 @@ public final class ProfileController {
     /**
      * Rebuild the villager's offers from profile state. Picks get fresh min-cost generation;
      * legacy levels keep their imported MerchantOffers verbatim so progress isn't lost.
+     * 
+     * Reputation modifiers (from curing or hero of the village) are applied if a player is provided.
      */
-    private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile) {
+    private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile, ServerPlayer player) {
         int currentLevel = villager.getVillagerData().level();
         MerchantOffers offers = new MerchantOffers();
 
@@ -243,6 +246,24 @@ public final class ProfileController {
             }
             offers.addAll(profile.legacyFor(lvl));
         }
+
         villager.setOffers(offers);
+
+        // Reputation and Hero-of-the-Village discounts are computed by vanilla's
+        // Villager.updateSpecialPrices(player), which writes each discount into the
+        // offer's specialPriceDiff. Vanilla only calls it from startTrading(); because
+        // we open the merchant manually (setTradingPlayer + openTradingScreen, to dodge
+        // the 1-frame menu bug) that call was being skipped, so curing / Hero discounts
+        // never applied. Reproduce it here, mirroring vanilla's startTrading order.
+        //
+        // updateSpecialPrices ACCUMULATES (it adds to specialPriceDiff, never resets),
+        // so clear each offer first — otherwise re-opening a villager whose legacy
+        // offers are reused would stack the discount every time.
+        if (player != null) {
+            for (MerchantOffer offer : offers) {
+                offer.resetSpecialPriceDiff();
+            }
+            ((VillagerInvoker) villager).tradeoptimizer$updateSpecialPrices(player);
+        }
     }
 }

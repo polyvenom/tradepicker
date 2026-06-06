@@ -22,6 +22,9 @@
   },
   "mixins": [
     {
+      "config": "tradeoptimizer.mixins.json"
+    },
+    {
       "config": "tradeoptimizer.client.mixins.json",
       "environment": "client"
     }
