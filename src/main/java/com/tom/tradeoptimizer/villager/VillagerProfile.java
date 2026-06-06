@@ -9,6 +9,7 @@ import net.minecraft.world.item.trading.MerchantOffer;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -16,16 +17,21 @@ import java.util.UUID;
  *
  *   id          — the villager's UUID
  *   profession  — registry name string, sanity check
+ *   owner       — UUID of the player who first claimed this villager. Only the owner
+ *                 (or a server op) may reset / re-pick levels. Optional for backward
+ *                 compatibility with profiles saved before ownership existed; an empty
+ *                 owner gets claimed by the next player to right-click the villager.
  *   picks       — levels the player explicitly chose: map<level, TradeKeys>
  *   legacy      — levels we imported from a villager that already had vanilla-rolled
  *                 trades before the mod was installed: map<level, raw MerchantOffers>
  *
- * A level is "filled" if EITHER picks or legacy has entries for it. When the player
- * Resets, both lanes get wiped.
+ * A level is "filled" if EITHER picks or legacy has entries for it. When the owner
+ * Resets, both lanes get wiped (owner is preserved across reset).
  */
 public record VillagerProfile(
         UUID id,
         String profession,
+        Optional<UUID> owner,
         Map<Integer, List<TradeKey>> picks,
         Map<Integer, List<MerchantOffer>> legacy
 ) {
@@ -41,6 +47,7 @@ public record VillagerProfile(
     public static final Codec<VillagerProfile> CODEC = RecordCodecBuilder.create(inst -> inst.group(
             UUIDUtil.CODEC.fieldOf("id").forGetter(VillagerProfile::id),
             Codec.STRING.fieldOf("prof").forGetter(VillagerProfile::profession),
+            UUIDUtil.CODEC.optionalFieldOf("owner").forGetter(VillagerProfile::owner),
             Codec.unboundedMap(INT_STR_CODEC, TradeKey.CODEC.listOf())
                     .optionalFieldOf("picks", new HashMap<>()).forGetter(VillagerProfile::picks),
             Codec.unboundedMap(INT_STR_CODEC, MerchantOffer.CODEC.listOf())
@@ -84,6 +91,20 @@ public record VillagerProfile(
     }
 
     public static VillagerProfile fresh(UUID id, String profession) {
-        return new VillagerProfile(id, profession, new HashMap<>(), new HashMap<>());
+        return new VillagerProfile(id, profession, Optional.empty(), new HashMap<>(), new HashMap<>());
+    }
+
+    /** Fresh profile that already records its owner. Used the first time a player interacts. */
+    public static VillagerProfile fresh(UUID id, String profession, UUID owner) {
+        return new VillagerProfile(id, profession, Optional.of(owner), new HashMap<>(), new HashMap<>());
+    }
+
+    /**
+     * Return a copy carrying the given owner, preserving picks/legacy as-is. Used to
+     * claim a grandfathered profile that has no owner yet, or to preserve ownership
+     * across a profession-change wipe.
+     */
+    public VillagerProfile withOwner(UUID newOwner) {
+        return new VillagerProfile(id, profession, Optional.of(newOwner), picks, legacy);
     }
 }

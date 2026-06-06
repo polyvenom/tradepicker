@@ -1,6 +1,7 @@
 package com.tom.tradeoptimizer.network;
 
 import com.tom.tradeoptimizer.trade.AvailableTrade;
+import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -26,6 +27,14 @@ public record OpenPickerS2C(
         List<AvailableTrade> available
 ) implements CustomPacketPayload {
 
+    /**
+     * Upper bound on trade previews read off the wire. A librarian's full enchanted-book
+     * expansion is ~100-200 entries; 4096 is comfortably above any real pool while
+     * stopping a crafted/malicious server from forcing a huge ArrayList pre-allocation
+     * on the client.
+     */
+    private static final int MAX_TRADES = 4096;
+
     public static final StreamCodec<RegistryFriendlyByteBuf, OpenPickerS2C> STREAM_CODEC = StreamCodec.of(
             (buf, p) -> {
                 buf.writeUUID(p.villagerId);
@@ -41,6 +50,9 @@ public record OpenPickerS2C(
                 int level = buf.readVarInt();
                 int required = buf.readVarInt();
                 int n = buf.readVarInt();
+                if (n < 0 || n > MAX_TRADES) {
+                    throw new DecoderException("OpenPickerS2C trade count out of range: " + n);
+                }
                 List<AvailableTrade> list = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) list.add(AvailableTrade.STREAM_CODEC.decode(buf));
                 return new OpenPickerS2C(id, prof, level, required, list);

@@ -21,9 +21,15 @@ import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import net.minecraft.world.item.trading.TradeSet;
 
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.permissions.Permission;
+import net.minecraft.server.permissions.PermissionLevel;
+
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -39,6 +45,18 @@ import java.util.UUID;
  */
 public final class ProfileController {
     private ProfileController() {}
+
+    /**
+     * Op-equivalent permission probe — GAMEMASTERS is MC 26.1.2's named replacement for
+     * the old integer permission level 2 (the threshold for /op'd command access).
+     * Cached because it's allocation-free to reuse but slightly verbose to construct.
+     */
+    private static final Permission OP_PERMISSION =
+            new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS);
+
+    private static boolean isOp(ServerPlayer player) {
+        return player.permissions().hasPermission(OP_PERMISSION);
+    }
 
     /**
      * Called on every right-click of a villager. Either applies picks to the villager
@@ -70,13 +88,15 @@ public final class ProfileController {
         // Case 2: pre-existing villager with vanilla offers, no profile.
         // Import existing offers into legacy buckets so the player keeps them.
         if (profile == null) {
-            profile = VillagerProfile.fresh(villager.getUUID(), profName);
+            // First interaction claims ownership. Only the owner (or an op) may later
+            // reset this villager — stops a passerby from wiping a base's villagers.
+            profile = VillagerProfile.fresh(villager.getUUID(), profName, player.getUUID());
             MerchantOffers existing = villager.getOffers();
             if (existing != null && !existing.isEmpty()) {
                 importExistingOffers(profile, existing, merchantLevel);
                 state.update(profile);
-                TradeOptimizer.LOGGER.info("Imported {} existing offers from villager {} into legacy",
-                        existing.size(), villager.getUUID());
+                TradeOptimizer.LOGGER.info("Imported {} existing offers from villager {} into legacy (owner={})",
+                        existing.size(), villager.getUUID(), player.getName().getString());
                 // They already have offers — open the merchant ourselves to keep
                 // every "filled villager" path consistent. Letting vanilla handle it
                 // here was the source of the 1-frame / no-open bug since vanilla's
@@ -88,10 +108,18 @@ public final class ProfileController {
             }
             state.update(profile);
         } else if (!profile.profession().equals(profName)) {
-            // Profession changed (e.g. workstation switched) — wipe and start over.
-            profile.clearAll();
-            profile = VillagerProfile.fresh(villager.getUUID(), profName);
+            // Profession changed (e.g. workstation switched) — wipe and start over,
+            // but keep the existing owner so the villager stays "theirs".
+            UUID keepOwner = profile.owner().orElse(player.getUUID());
+            profile = VillagerProfile.fresh(villager.getUUID(), profName, keepOwner);
             state.update(profile);
+        } else if (profile.owner().isEmpty()) {
+            // Grandfathered profile from a save written before ownership existed —
+            // claim it for whoever right-clicks first after the upgrade.
+            profile = profile.withOwner(player.getUUID());
+            state.update(profile);
+            TradeOptimizer.LOGGER.info("Claimed ownership of grandfathered villager {} for {}",
+                    villager.getUUID(), player.getName().getString());
         }
 
         if (!profile.isFilled(merchantLevel)) {
@@ -121,14 +149,77 @@ public final class ProfileController {
             player.sendSystemMessage(Component.literal("Villager not found."));
             return;
         }
-        String profName = BuiltInRegistries.VILLAGER_PROFESSION
-                .getKey(villager.getVillagerData().profession().value()).toString();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
+        String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(prof).toString();
+
+        // The picks list arrives from the client and CANNOT be trusted. Without these
+        // checks a modified client could submit any villager-trade id (or any synthetic
+        // book key for any enchantment/level) and the server would happily build it at
+        // minimum cost — letting players hand themselves arbitrary cheap trades.
+
+        // 1) The level must be one this villager has actually reached. The picker only
+        //    ever opens for the villager's current level, so a submit for a higher level
+        //    is a tampered packet.
+        int currentLevel = villager.getVillagerData().level();
+        if (level < 1 || level > currentLevel) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected out-of-range level {} for villager {} (at level {})",
+                    level, villagerId, currentLevel);
+            return;
+        }
+
+        // 2) Every pick must be a real option in this (profession, level) trade pool.
+        //    Re-enumerate the pool server-side and drop anything that isn't in it.
+        ResourceKey<TradeSet> tradeSetKey = prof.getTrades(level);
+        if (tradeSetKey == null) {
+            TradeOptimizer.LOGGER.warn("[submit] no trade set for {} level {}", profName, level);
+            return;
+        }
+        List<AvailableTrade> available;
+        try {
+            available = OfferFactory.enumerate(sl, villager, tradeSetKey);
+        } catch (Exception e) {
+            TradeOptimizer.LOGGER.error("[submit] enumeration failed for {} level {}", profName, level, e);
+            return;
+        }
+        Set<Identifier> validIds = new HashSet<>();
+        for (AvailableTrade t : available) validIds.add(t.key().id());
+
+        List<TradeKey> validatedPicks = new ArrayList<>(picks.size());
+        for (TradeKey k : picks) {
+            if (validIds.contains(k.id())) validatedPicks.add(k);
+            else TradeOptimizer.LOGGER.warn("[submit] dropped invalid pick {} for {} level {}",
+                    k.id(), profName, level);
+        }
+        if (validatedPicks.isEmpty()) {
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: those trades aren't valid for this villager."));
+            return;
+        }
 
         VillagerProfileState state = VillagerProfileState.get(sl);
         VillagerProfile profile = state.get(villagerId);
-        if (profile == null) profile = VillagerProfile.fresh(villagerId, profName);
+        // If a profile already exists with a different owner, refuse — only the owner
+        // (or an op) may overwrite picks. Without this, a non-owner who somehow reached
+        // an unfilled level (e.g. after the villager leveled up while owner was offline)
+        // could replace the owner's planned trades.
+        if (profile != null && profile.owner().isPresent()
+                && !profile.owner().get().equals(player.getUUID())
+                && !isOp(player)) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: villager {} owned by {}, not {}",
+                    villagerId, profile.owner().get(), player.getUUID());
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: this villager belongs to another player."));
+            return;
+        }
+        if (profile == null) {
+            // Shouldn't normally happen — picker only opens after onInteract creates a
+            // profile. Belt-and-braces: claim ownership now.
+            profile = VillagerProfile.fresh(villagerId, profName, player.getUUID());
+        } else if (profile.owner().isEmpty()) {
+            profile = profile.withOwner(player.getUUID());
+        }
 
-        profile.setPicks(level, picks);
+        profile.setPicks(level, validatedPicks);
         state.update(profile);
 
         applyToVillager(sl, villager, profile, player);
@@ -144,10 +235,39 @@ public final class ProfileController {
         ServerLevel sl = player.level();
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) return;
 
+        // Reset is destructive (wipes XP, level, and locked-in trades). Lock it to the
+        // owner — vanilla already scopes reputation per-player, so per-player ownership
+        // for a destructive op fits the same model. Ops bypass for cleanup.
         VillagerProfileState state = VillagerProfileState.get(sl);
         VillagerProfile profile = state.get(villagerId);
+
+        boolean op = isOp(player);
+
+        if (profile == null) {
+            // No profile means nobody has ever interacted via this mod — reject so a
+            // crafted packet can't wipe a stranger's vanilla villager.
+            if (!op) {
+                TradeOptimizer.LOGGER.warn("[reset] rejected: villager {} has no profile (requested by {})",
+                        villagerId, player.getName().getString());
+                player.sendSystemMessage(Component.literal(
+                        "Trade Picker: this villager hasn't been claimed yet — right-click it first."));
+                return;
+            }
+        } else if (profile.owner().isPresent()
+                && !profile.owner().get().equals(player.getUUID()) && !op) {
+            TradeOptimizer.LOGGER.warn("[reset] rejected: villager {} owned by {}, not {}",
+                    villagerId, profile.owner().get(), player.getUUID());
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: this villager belongs to another player."));
+            return;
+        }
+
         if (profile != null) {
-            profile.clearAll();
+            // Preserve the owner across reset — they still own the villager, they're
+            // just starting their picks over.
+            UUID keepOwner = profile.owner().orElse(player.getUUID());
+            String profName = profile.profession();
+            profile = VillagerProfile.fresh(villagerId, profName, keepOwner);
             state.update(profile);
         }
 

@@ -1,6 +1,7 @@
 package com.tom.tradeoptimizer.network;
 
 import com.tom.tradeoptimizer.trade.TradeKey;
+import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -11,9 +12,17 @@ import java.util.UUID;
 
 /**
  * Client -> server: the player picked these trades for the indicated villager+level.
- * Server validates picks against the actual TradeSet contents before applying.
+ * Server validates picks against the actual TradeSet contents before applying
+ * (see ProfileController.onPickerSubmit).
  */
 public record PickerSubmitC2S(UUID villagerId, int level, List<TradeKey> picks) implements CustomPacketPayload {
+
+    /**
+     * Hard cap on the pick count read off the wire. A legit picker submit is 2; this
+     * leaves generous headroom while preventing a crafted packet from claiming a huge
+     * count and forcing a multi-gigabyte ArrayList pre-allocation (server-crash DoS).
+     */
+    private static final int MAX_PICKS = 64;
 
     public static final StreamCodec<RegistryFriendlyByteBuf, PickerSubmitC2S> STREAM_CODEC = StreamCodec.of(
             (buf, p) -> {
@@ -26,6 +35,9 @@ public record PickerSubmitC2S(UUID villagerId, int level, List<TradeKey> picks) 
                 UUID id = buf.readUUID();
                 int level = buf.readVarInt();
                 int n = buf.readVarInt();
+                if (n < 0 || n > MAX_PICKS) {
+                    throw new DecoderException("PickerSubmitC2S pick count out of range: " + n);
+                }
                 List<TradeKey> picks = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) picks.add(TradeKey.STREAM_CODEC.decode(buf));
                 return new PickerSubmitC2S(id, level, picks);
