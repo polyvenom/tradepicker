@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "id": "tradeoptimizer",
   "version": "${version}",
-  "name": "Trade Optimizer",
-  "description": "Pick your villager's trades instead of cycling for them. Choose two trades from the full pool at each level, always at the lowest vanilla price. Reset any villager to start over.",
+  "name": "Trade Picker",
+  "description": "Pick the exact villager trades you want, at vanilla's lowest price. Choose two trades from the full pool at each level, no workstation breaking or RNG. Reset any villager to start over.",
   "authors": ["polyvenom"],
   "contact": {
-    "homepage": "https://github.com/polyvenom",
-    "sources": "https://github.com/polyvenom"
+    "homepage": "https://github.com/polyvenom/tradepicker",
+    "sources": "https://github.com/polyvenom/tradepicker"
   },
   "license": "CC0-1.0",
   "icon": "assets/tradeoptimizer/icon.png",
