@@ -4,7 +4,7 @@
   "package": "com.tom.tradeoptimizer.mixin",
   "compatibilityLevel": "JAVA_25",
   "mixins": [
-    "MerchantMenuReputationMixin"
+    "VillagerInvoker"
   ],
   "injectors": {
     "defaultRequire": 1
