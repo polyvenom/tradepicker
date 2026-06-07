@@ -14,6 +14,12 @@ repositories {
 	}
 }
 
+// Dedicated source set for game tests — keeps the test code and its entrypoint out
+// of the production main/client jars. Its classpath is wired to main's below.
+sourceSets {
+	gametest {}
+}
+
 loom {
 	splitEnvironmentSourceSets()
 
@@ -22,8 +28,33 @@ loom {
 			sourceSet sourceSets.main
 			sourceSet sourceSets.client
 		}
+		// Separate mod id so the gametest source set's own fabric.mod.json (which
+		// declares the fabric-gametest entrypoint) is only loaded in the test run.
+		"tradeoptimizer-gametest" {
+			sourceSet sourceSets.gametest
+		}
+	}
+
+	runs {
+		// ./gradlew runGametest — boots a headless dedicated server, runs every
+		// @GameTest in the gametest source set against REAL Minecraft, writes a
+		// JUnit XML report, and exits non-zero if any test fails. Unlike the
+		// fabric-loader-junit harness, this cannot diverge from runtime behaviour.
+		gametest {
+			server()
+			name = "Trade Picker Game Test"
+			source "gametest"
+			vmArg "-Dfabric-api.gametest"
+			vmArg "-Dfabric-api.gametest.report-file=" + layout.buildDirectory.file("gametest/report.xml").get().asFile
+			runDir "build/gametest"
+		}
 	}
 }
+
+// Give the gametest source set everything main has (Minecraft, Fabric API, and the
+// remapped gametest API via modImplementation) plus main's compiled output.
+sourceSets.gametest.compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+sourceSets.gametest.runtimeClasspath += sourceSets.main.runtimeClasspath + sourceSets.main.output
 
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
@@ -41,6 +72,11 @@ dependencies {
 	testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
 	testImplementation platform("org.junit:junit-bom:${project.junit_version}")
 	testImplementation "org.junit.jupiter:junit-jupiter"
+
+	// Game-test framework, scoped to the gametest source set only (matches this
+	// project's convention of plain `implementation` for Fabric mod deps — see
+	// fabric-api above). Not on main/client, so it never reaches the release jar.
+	gametestImplementation "net.fabricmc.fabric-api:fabric-gametest-api-v1:${project.gametest_api_version}"
 }
 
 test {

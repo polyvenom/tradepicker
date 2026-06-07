@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "tradeoptimizer-gametest",
+  "version": "1.0.0",
+  "name": "Trade Picker Game Tests",
+  "description": "Server-side game tests for Trade Picker. Dev-only; never shipped.",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-gametest": [
+      "com.tom.tradeoptimizer.gametest.OfferFactoryGameTest"
+    ]
+  },
+  "depends": {
+    "tradeoptimizer": "*",
+    "fabric-gametest-api-v1": "*"
+  }
+}
