@@ -2,5 +2,10 @@
   "tradeoptimizer.picker.title": "Trade Picker",
   "tradeoptimizer.picker.confirm": "Confirm",
   "tradeoptimizer.picker.cancel": "Cancel",
-  "tradeoptimizer.picker.reset": "Reset"
+  "tradeoptimizer.picker.reset": "Reset",
+
+  "tradeoptimizer.config.title": "Trade Picker Settings",
+  "tradeoptimizer.config.vanillaPricing": "Vanilla Pricing",
+  "tradeoptimizer.config.vanillaPricing.tip": "OFF (default): every trade shows the lowest possible vanilla price.\nON: trades use vanilla's randomized price range. Prices are seeded per villager and trade, so the picker preview always matches what you pay.\n\nNote: this setting is server-side. On a dedicated server it must be changed in config/tradeoptimizer.json on the server directly.",
+  "tradeoptimizer.config.done": "Done"
 }

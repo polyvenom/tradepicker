@@ -1,6 +1,7 @@
 package com.tom.tradeoptimizer.trade;
 
 import com.tom.tradeoptimizer.TradeOptimizer;
+import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.HolderSet;
@@ -62,14 +63,15 @@ public final class OfferFactory {
             if (keyOpt.isEmpty()) continue;
 
             try {
-                LootContext minCtx = buildContext(level, villager, tradeSet, MinRandomSource.INSTANCE);
-                MerchantOffer preview = holder.value().getOffer(minCtx);
+                TradeKey flatKey = new TradeKey(keyOpt.get().identifier());
+                LootContext ctx = buildContext(level, villager, tradeSet, costRandom(villager, flatKey));
+                MerchantOffer preview = holder.value().getOffer(ctx);
                 if (preview == null) continue;
 
                 if (preview.getResult().is(Items.ENCHANTED_BOOK)) {
                     out.addAll(expandBookTrade(level, villager, tradeSet, holder.value(), registries));
                 } else {
-                    out.add(new AvailableTrade(new TradeKey(keyOpt.get().identifier()), preview));
+                    out.add(new AvailableTrade(flatKey, preview));
                 }
             } catch (Exception e) {
                 TradeOptimizer.LOGGER.warn("Failed to generate preview for trade {}: {}",
@@ -87,7 +89,7 @@ public final class OfferFactory {
         Optional<Holder.Reference<VillagerTrade>> ref =
                 registries.lookupOrThrow(Registries.VILLAGER_TRADE).get(key.asResourceKey());
         if (ref.isEmpty()) return Optional.empty();
-        LootContext ctx = buildContext(level, villager, null, MinRandomSource.INSTANCE);
+        LootContext ctx = buildContext(level, villager, null, costRandom(villager, key));
         try {
             return Optional.ofNullable(ref.get().value().getOffer(ctx));
         } catch (Exception e) {
@@ -117,12 +119,12 @@ public final class OfferFactory {
             for (int lvl = minLvl; lvl <= maxLvl; lvl++) {
                 int levelOffset = lvl - minLvl;
                 try {
+                    TradeKey bookKey = buildSyntheticBookKey(enchKey.get().identifier(), lvl);
                     LootContext ctx = buildContext(level, villager, tradeSet,
-                            new IndexBiasedRandomSource(enchIdx, levelOffset));
+                            new IndexBiasedRandomSource(bookCostFallback(villager, bookKey), enchIdx, levelOffset));
                     MerchantOffer offer = template.getOffer(ctx);
                     if (offer == null || !offer.getResult().is(Items.ENCHANTED_BOOK)) continue;
-                    out.add(new AvailableTrade(
-                            buildSyntheticBookKey(enchKey.get().identifier(), lvl), offer));
+                    out.add(new AvailableTrade(bookKey, offer));
                 } catch (Exception e) {
                     // Skip on failure — some enchantments may not be valid for this trade.
                 }
@@ -156,6 +158,7 @@ public final class OfferFactory {
         }
         if (enchIdx < 0) return Optional.empty();
         int levelOffset = parsed.level - minLevel;
+        RandomSource costFallback = bookCostFallback(villager, synthetic);
 
         // A book trade must be regenerated from a book-producing template. That template
         // has to come from a trade set that actually CONTAINS a book trade. The book was
@@ -184,7 +187,7 @@ public final class OfferFactory {
                 try {
                     VillagerTrade trade = holder.value();
                     LootContext ctx = buildContext(level, villager, tradeSet,
-                            new IndexBiasedRandomSource(enchIdx, levelOffset));
+                            new IndexBiasedRandomSource(costFallback, enchIdx, levelOffset));
                     MerchantOffer offer = trade.getOffer(ctx);
                     if (offer == null || !offer.getResult().is(Items.ENCHANTED_BOOK)) continue;
                     TradeOptimizer.LOGGER.info("[book-regen] resolved {} -> {} via template {} (set level {})",
@@ -271,6 +274,37 @@ public final class OfferFactory {
         List<Holder<Enchantment>> out = new ArrayList<>();
         for (Holder<Enchantment> h : tag.get()) out.add(h);
         return out;
+    }
+
+    // -------------------------------------------------------------------------
+    // Pricing source selection (config-driven)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Stable per-(villager, trade) seed. Hashing the TradeKey's string id keeps the value
+     * identical between the picker preview and the eventual apply, and across re-opens — so a
+     * randomized price can't be re-rolled by reopening the menu.
+     */
+    private static long priceSeed(Villager villager, TradeKey key) {
+        return villager.getUUID().getMostSignificantBits() * 31L + key.id().toString().hashCode();
+    }
+
+    /** Cost source for flat (non-book) trades: min cost by default, seeded vanilla range if enabled. */
+    private static RandomSource costRandom(Villager villager, TradeKey key) {
+        return TradeOptimizerConfig.get().vanillaPricing()
+                ? RandomSource.create(priceSeed(villager, key))
+                : MinRandomSource.INSTANCE;
+    }
+
+    /**
+     * Cost fallback handed to {@link IndexBiasedRandomSource} for book trades. Returns null in
+     * min-price mode (so cost rolls pin to 0), or a seeded source when vanilla pricing is on —
+     * the steered enchantment/level prefix is honored either way.
+     */
+    private static RandomSource bookCostFallback(Villager villager, TradeKey key) {
+        return TradeOptimizerConfig.get().vanillaPricing()
+                ? RandomSource.create(priceSeed(villager, key))
+                : null;
     }
 
     private static LootContext buildContext(ServerLevel level, Villager villager, TradeSet tradeSet, RandomSource rs) {

@@ -7,6 +7,11 @@ version = project.mod_version
 group = project.maven_group
 
 repositories {
+	// Terraformers maven hosts ModMenu — compile-only dep for the optional integration.
+	maven {
+		name = "Terraformers"
+		url = "https://maven.terraformersmc.com/"
+	}
 }
 
 loom {
@@ -24,6 +29,10 @@ dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// Soft optional — present at compile-time so TradePickerMenuApi resolves; absent
+	// at runtime unless the user installs ModMenu.
+	clientCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
 }
 
 processResources {

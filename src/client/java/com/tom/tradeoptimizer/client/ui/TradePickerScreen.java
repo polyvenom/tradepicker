@@ -274,6 +274,9 @@ public final class TradePickerScreen extends Screen {
         int level = enchants.getLevel(ench);
         String pathStr = ench.unwrapKey().map(k -> k.identifier().getPath()).orElse("enchant");
         String base = capitalize(pathStr.replace('_', ' '));
+        // Match vanilla: single-level enchantments (Mending, Silk Touch, Infinity, ...)
+        // display with no numeral. Multi-level enchantments always show their numeral.
+        if (level == 1 && ench.value().getMaxLevel() == 1) return base;
         return base + " " + roman(level);
     }
 

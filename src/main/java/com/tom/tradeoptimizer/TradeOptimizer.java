@@ -1,5 +1,6 @@
 package com.tom.tradeoptimizer;
 
+import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import com.tom.tradeoptimizer.network.NetworkPayloads;
 import com.tom.tradeoptimizer.network.ServerNetworkHandler;
 import com.tom.tradeoptimizer.villager.VillagerInteractionListener;
@@ -14,6 +15,7 @@ public final class TradeOptimizer implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        TradeOptimizerConfig.get(); // load (and create on first run) config/tradeoptimizer.json
         NetworkPayloads.registerCommon();
         ServerNetworkHandler.register();
         VillagerInteractionListener.register();

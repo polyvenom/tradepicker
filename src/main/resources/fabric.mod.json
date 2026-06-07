@@ -18,6 +18,9 @@
     ],
     "client": [
       "com.tom.tradeoptimizer.client.TradeOptimizerClient"
+    ],
+    "modmenu": [
+      "com.tom.tradeoptimizer.client.modmenu.TradePickerMenuApi"
     ]
   },
   "mixins": [
@@ -34,5 +37,8 @@
     "fabric-api": "*",
     "minecraft": ">=26.1.2",
     "java": ">=25"
+  },
+  "recommends": {
+    "modmenu": "*"
   }
 }
