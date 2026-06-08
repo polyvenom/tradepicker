@@ -19,6 +19,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerData;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 import net.minecraft.world.item.trading.TradeSet;
@@ -28,7 +29,9 @@ import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionLevel;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -352,8 +355,12 @@ public final class ProfileController {
      * Instead we ask each level's trade set how many trades it can yield (capped at
      * vanilla's per-level maximum) to walk the flat list, and let the villager's current
      * (highest) level act as a catch-all so no offer is ever lost.
+     *
+     * Package-private (not private) so the legacy-bucketing gametest can call it directly:
+     * the only public caller, onInteract, is gated behind ServerPlayNetworking.canSend, which
+     * a headless mock player can't satisfy. No behaviour change — visibility only.
      */
-    private static void importExistingOffers(ServerLevel level, Villager villager,
+    static void importExistingOffers(ServerLevel level, Villager villager,
                                              VillagerProfile profile, MerchantOffers existing, int merchantLevel) {
         HolderLookup.Provider registries = level.registryAccess();
         VillagerProfession prof = villager.getVillagerData().profession().value();
@@ -465,29 +472,75 @@ public final class ProfileController {
     }
 
     /**
-     * Rebuild the villager's offers from profile state. Picks get fresh min-cost generation;
-     * legacy levels keep their imported MerchantOffers verbatim so progress isn't lost.
-     * 
+     * Rebuild the villager's offers from profile state, preserving use-counts on trades that
+     * carry over from the previous offer list.
+     *
+     * Picks are regenerated from their TradeKeys, but a freshly generated MerchantOffer starts
+     * with a zero use-count. If we simply replaced the live offers with fresh ones, every
+     * previously-used trade would be silently restocked — so leveling a villager and picking the
+     * new level's trades would hand out a free restock on all the lower-level trades (audit #3).
+     * To prevent that, when a regenerated pick matches a trade already present in the live offers
+     * (same result + base cost), we KEEP the existing offer instance so its accumulated uses (and
+     * demand) survive. Only a genuinely new pick gets a fresh, empty offer.
+     *
+     * Legacy levels keep their imported MerchantOffers verbatim — the profile holds those exact
+     * instances and re-adds them below, so their use-counts are already preserved across rebuilds.
+     * They're excluded from the carry-over pool so a pick can't consume (and then duplicate) one.
+     *
      * Reputation modifiers (from curing or hero of the village) are applied if a player is provided.
      */
     private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile, ServerPlayer player) {
         int currentLevel = villager.getVillagerData().level();
-        MerchantOffers offers = new MerchantOffers();
 
+        // Carry-over pool of the previously-live PICK offers, used to preserve use-counts. Legacy
+        // offers are filtered out by identity: the profile re-adds those same instances, so reusing
+        // one here would list it twice.
+        Set<MerchantOffer> legacyInstances = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (List<MerchantOffer> bucket : profile.legacy().values()) legacyInstances.addAll(bucket);
+        List<MerchantOffer> carryOver = new ArrayList<>();
+        MerchantOffers previous = villager.getOffers();
+        if (previous != null) {
+            for (MerchantOffer offer : previous) {
+                if (!legacyInstances.contains(offer)) carryOver.add(offer);
+            }
+        }
+
+        MerchantOffers offers = new MerchantOffers();
         for (int lvl = 1; lvl <= currentLevel; lvl++) {
             for (TradeKey key : profile.picksFor(lvl)) {
-                Optional<MerchantOffer> offer = OfferFactory.generate(level, villager, key, lvl);
-                if (offer.isEmpty()) {
+                Optional<MerchantOffer> generated = OfferFactory.generate(level, villager, key, lvl);
+                if (generated.isEmpty()) {
                     TradeOptimizer.LOGGER.warn("[apply] generate({}) lvl={} returned EMPTY",
                             key.id(), lvl);
+                    continue;
                 }
-                offer.ifPresent(offers::add);
+                MerchantOffer fresh = generated.get();
+                MerchantOffer kept = takeMatching(carryOver, fresh);
+                offers.add(kept != null ? kept : fresh);
             }
             offers.addAll(profile.legacyFor(lvl));
         }
 
         villager.setOffers(offers);
         refreshSpecialPrices(villager, player);
+    }
+
+    /**
+     * Find and remove from {@code pool} an offer representing the same trade as {@code target} —
+     * same result and same BASE cost (base, so a reputation / Hero discount already written into
+     * one offer's price doesn't read as a difference). Returns the carried-over instance, or null
+     * if the pool has no match. Removing the match stops two identical picks from both claiming it.
+     */
+    private static MerchantOffer takeMatching(List<MerchantOffer> pool, MerchantOffer target) {
+        for (int i = 0; i < pool.size(); i++) {
+            MerchantOffer candidate = pool.get(i);
+            if (ItemStack.matches(candidate.getResult(), target.getResult())
+                    && ItemStack.matches(candidate.getBaseCostA(), target.getBaseCostA())
+                    && ItemStack.matches(candidate.getCostB(), target.getCostB())) {
+                return pool.remove(i);
+            }
+        }
+        return null;
     }
 
     /**

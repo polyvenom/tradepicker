@@ -7,7 +7,13 @@
   "environment": "*",
   "entrypoints": {
     "fabric-gametest": [
-      "com.tom.tradeoptimizer.gametest.OfferFactoryGameTest"
+      "com.tom.tradeoptimizer.gametest.OfferFactoryGameTest",
+      "com.tom.tradeoptimizer.gametest.RestockExploitGameTest",
+      "com.tom.tradeoptimizer.gametest.OwnershipGateGameTest",
+      "com.tom.tradeoptimizer.gametest.VillagerProfileCodecGameTest",
+      "com.tom.tradeoptimizer.gametest.PriceSeedGameTest",
+      "com.tom.tradeoptimizer.villager.LegacyBucketingGameTest",
+      "com.tom.tradeoptimizer.trade.BookKeyFormatGameTest"
     ]
   },
   "depends": {

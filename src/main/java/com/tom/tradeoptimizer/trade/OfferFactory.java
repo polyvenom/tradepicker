@@ -208,32 +208,64 @@ public final class OfferFactory {
     // Synthetic key encoding + tag helpers
     // -------------------------------------------------------------------------
 
-    private record SyntheticBookKey(Identifier enchantmentId, int level) {}
+    // Package-private (not private) so BookKeyFormatGameTest can round-trip the key encoding.
+    record SyntheticBookKey(Identifier enchantmentId, int level) {}
 
     private static boolean isBookKey(TradeKey key) {
         return key.id().getNamespace().equals(TradeOptimizer.MOD_ID)
                 && key.id().getPath().startsWith(BOOK_PREFIX);
     }
 
-    private static TradeKey buildSyntheticBookKey(Identifier enchantId, int level) {
-        String path = BOOK_PREFIX + enchantId.getNamespace() + "/" + enchantId.getPath() + "/L" + level;
+    // Package-private (not private) so BookKeyFormatGameTest can verify the written format.
+    static TradeKey buildSyntheticBookKey(Identifier enchantId, int level) {
+        // Level-first, all-lowercase form: book/<level>/<ench_ns>/<ench_path>. The level leads so
+        // parsing stays unambiguous even though <ench_path> may contain slashes, and every
+        // character is a valid Identifier path char. The old form put the level last as an
+        // uppercase "L<level>" marker — which strict Identifier validation rejects (headless tests,
+        // and potentially other loaders), so it only ever worked thanks to the live game being
+        // lenient. parseSyntheticBook still reads the old form for pre-migration saves.
+        String path = BOOK_PREFIX + level + "/" + enchantId.getNamespace() + "/" + enchantId.getPath();
         return new TradeKey(Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, path));
     }
 
-    private static SyntheticBookKey parseSyntheticBook(TradeKey key) {
-        // Stored format:  book/<ench_ns>/<ench_path>/L<level>
-        //   <ench_path> may itself contain '/', because modded enchantments are allowed
-        //   slashes in their path — so we can't assume a fixed segment count (the old
-        //   split-into-3-or-4 logic silently dropped any such book pick).
-        // Legacy format:  book/<ench_ns>/<ench_path>   (no trailing L<level>) — pre-dates
-        //   per-level expansion; treated as level 1.
-        // The level marker uses an uppercase 'L', which can never appear in a real
-        // (lowercase-only) Identifier path segment, so it's unambiguous to detect.
+    // Package-private (not private) so BookKeyFormatGameTest can round-trip the key encoding.
+    static SyntheticBookKey parseSyntheticBook(TradeKey key) {
+        // NEW format (current):  book/<level>/<ench_ns>/<ench_path>   — level-first, all lowercase.
+        // OLD format (pre-migration saves):  book/<ench_ns>/<ench_path>/L<level>   — uppercase 'L'
+        //   marker. Still read so existing villagers keep their book picks.
+        // LEGACY format:  book/<ench_ns>/<ench_path>   (no level marker) — pre-dates per-level
+        //   expansion; treated as level 1.
+        // <ench_path> may itself contain '/', because modded enchantments are allowed slashes in
+        // their path — so we can't assume a fixed segment count.
         String path = key.id().getPath();
         if (!path.startsWith(BOOK_PREFIX)) return null;
 
         String[] parts = path.substring(BOOK_PREFIX.length()).split("/");
         if (parts.length < 2) return null; // need at least <ns> and one path segment
+
+        // NEW format first: a purely-numeric leading segment is the level. Real enchantment
+        // namespaces are never purely numeric, so this can't be mistaken for the OLD/legacy forms
+        // below (whose leading segment is the namespace).
+        if (parts.length >= 3 && isAllDigits(parts[0])) {
+            int newLevel;
+            try {
+                newLevel = Integer.parseInt(parts[0]);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+            String newNs = parts[1];
+            StringBuilder newPath = new StringBuilder();
+            for (int i = 2; i < parts.length; i++) {
+                if (i > 2) newPath.append('/');
+                newPath.append(parts[i]);
+            }
+            if (newPath.length() == 0) return null;
+            try {
+                return new SyntheticBookKey(Identifier.fromNamespaceAndPath(newNs, newPath.toString()), newLevel);
+            } catch (Exception e) {
+                return null;
+            }
+        }
 
         String ns = parts[0];
         int lastIdx = parts.length - 1;
@@ -265,6 +297,14 @@ public final class OfferFactory {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    private static boolean isAllDigits(String s) {
+        if (s.isEmpty()) return false;
+        for (int i = 0; i < s.length(); i++) {
+            if (!Character.isDigit(s.charAt(i))) return false;
+        }
+        return true;
     }
 
     private static List<Holder<Enchantment>> tradeableEnchantments(HolderLookup.Provider registries) {
