@@ -12,13 +12,18 @@ base {
 neoForge {
 	version = project.neoforge_version
 
-	// Step 3/5 will source-share :common into this module and add client/server runs.
 	mods {
 		tradeoptimizer {
 			sourceSet sourceSets.main
 		}
 	}
 }
+
+// Source-sharing: compile :common into this NeoForge jar. NeoForge uses a single source set
+// (client code is guarded at runtime via Dist), so both common/src/main/java and
+// common/src/client/java are compiled here against NeoForge's Mojmapped Minecraft.
+sourceSets.main.java.srcDir project(':common').file('src/main/java')
+sourceSets.main.java.srcDir project(':common').file('src/client/java')
 
 // Java 25 — NeoForge 26.1.2's runtime stack (FancyModLoader/NeoForm) is Java 25 bytecode,
 // so the NeoForge artifact must target 25 to resolve those variants. Matches Fabric + Common.
