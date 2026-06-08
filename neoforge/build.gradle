@@ -42,6 +42,17 @@ neoForge {
 sourceSets.main.java.srcDir project(':common').file('src/main/java')
 sourceSets.main.java.srcDir project(':common').file('src/client/java')
 
+// Substitute ${version} in neoforge.mods.toml with the gradle mod_version (mirrors how the
+// Fabric build interpolates fabric.mod.json), so the jar's metadata reports the real version
+// rather than a hardcoded placeholder.
+processResources {
+	def v = project.version
+	inputs.property "version", v
+	filesMatching("META-INF/neoforge.mods.toml") {
+		expand "version": v
+	}
+}
+
 // Give the gametest source set everything main has (Minecraft, NeoForge, and the source-shared
 // common classes) plus main's compiled output.
 sourceSets.gameTest.compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
