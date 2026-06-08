@@ -9,12 +9,29 @@ base {
 	archivesName = "tradeoptimizer-neoforge"
 }
 
+// Dedicated source set for game tests — kept out of the production jar, added to the mod only
+// for the gameTestServer run.
+sourceSets {
+	gameTest
+}
+
 neoForge {
 	version = project.neoforge_version
+
+	addModdingDependenciesTo sourceSets.gameTest
 
 	mods {
 		tradeoptimizer {
 			sourceSet sourceSets.main
+			sourceSet sourceSets.gameTest
+		}
+	}
+
+	runs {
+		// ./gradlew runGameTest — boots a headless gameTestServer that runs every registered
+		// @GameTest and exits non-zero on failure.
+		gameTest {
+			type = "gameTestServer"
 		}
 	}
 }
@@ -24,6 +41,11 @@ neoForge {
 // common/src/client/java are compiled here against NeoForge's Mojmapped Minecraft.
 sourceSets.main.java.srcDir project(':common').file('src/main/java')
 sourceSets.main.java.srcDir project(':common').file('src/client/java')
+
+// Give the gametest source set everything main has (Minecraft, NeoForge, and the source-shared
+// common classes) plus main's compiled output.
+sourceSets.gameTest.compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
+sourceSets.gameTest.runtimeClasspath += sourceSets.main.runtimeClasspath + sourceSets.main.output
 
 // Java 25 — NeoForge 26.1.2's runtime stack (FancyModLoader/NeoForm) is Java 25 bytecode,
 // so the NeoForge artifact must target 25 to resolve those variants. Matches Fabric + Common.
@@ -37,5 +59,21 @@ java {
 
 	toolchain {
 		languageVersion = JavaLanguageVersion.of(25)
+	}
+}
+
+// ModDevGradle defaults its run/asset tasks (downloadAssets, runGameTest, ...) to a Java 21
+// toolchain, but NeoForge 26.1.2's runtime libraries are Java 25 bytecode and JDK 25 is the only
+// one installed (the asset tool is Java-21 bytecode and runs fine on 25). Force every MDG task
+// that picks a JDK onto the installed JDK 25 so the runs can launch without a separate JDK 21.
+def jdk25Launcher = javaToolchains.launcherFor {
+	languageVersion = JavaLanguageVersion.of(25)
+}
+tasks.configureEach { t ->
+	if (t.hasProperty('javaLauncher')) {
+		t.javaLauncher.set(jdk25Launcher)
+	}
+	if (t.hasProperty('javaExecutable')) {
+		t.javaExecutable.set(jdk25Launcher.map { it.executablePath.asFile.absolutePath })
 	}
 }
