@@ -37,7 +37,7 @@ When the villager levels up, the picker opens again for the new tier. You stay i
 Yes. Install on both server and client. If a player joins without the mod, they fall back to vanilla trading normally and get a one-time message explaining why.
 
 **Will it conflict with my other mods?**  
-It's compatible with Sodium, Iris, Lithium, ModMenu, EMI, JEI, REI, and most other Fabric mods. Don't install alongside other trade-cycling mods (VillagerTradefix, Trade Cycling, etc.) — they're solving the same problem a different way and will likely conflict.
+It's compatible with Sodium, Iris, Lithium, EMI, JEI, REI, ModMenu (Fabric), and most other gameplay/utility mods on either loader. Don't install alongside other trade-cycling mods (VillagerTradefix, Trade Cycling, etc.) — they're solving the same problem a different way and will likely conflict.
 
 **Do picks survive world reload / server restart?**  
 Yes. Picks are saved per-villager in world data and survive restarts, chunk unloads, and updates.
@@ -66,12 +66,18 @@ Trade Picker skips the RNG entirely. You choose which trades a villager gets dir
 
 ## Install
 
-1. Install [Fabric Loader](https://fabricmc.net/use/installer/) for **Minecraft 26.1.2**
-2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
-3. Drop the Trade Picker `.jar` into your `mods` folder
-4. On a server: install on both server and client
+Trade Picker runs on **Fabric** and **NeoForge** for Minecraft 26.1.2. Pick the jar that matches your loader.
 
-No config files. No setup. Right-click a villager and it works.
+### Fabric
+1. Install [Fabric Loader](https://fabricmc.net/use/installer/) for Minecraft 26.1.2
+2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
+3. Drop `tradeoptimizer-fabric-<version>.jar` into your `mods` folder
+
+### NeoForge
+1. Install [NeoForge](https://neoforged.net/) 26.1.2 or newer in the 26.1 line
+2. Drop `tradeoptimizer-neoforge-<version>.jar` into your `mods` folder
+
+On a server: install on both server and client. Worlds carry over between loaders — the mod id and save data are identical, so a villager's picks survive moving the world from Fabric to NeoForge (or back). One small config file is optional (`config/tradeoptimizer.json`). Right-click a villager and it works.
 
 ---
 
@@ -81,10 +87,11 @@ No config files. No setup. Right-click a villager and it works.
 git clone https://github.com/polyvenom/tradepicker.git
 cd tradepicker
 ./gradlew build
-# jar at build/libs/tradeoptimizer-<version>.jar
+# fabric jar:   fabric/build/libs/tradeoptimizer-fabric-<version>.jar
+# neoforge jar: neoforge/build/libs/tradeoptimizer-neoforge-<version>.jar
 ```
 
-Requires Java 25. Uses Fabric Loom, Mojang mappings, Fabric API `0.149.1+26.1.2`.
+Requires Java 25. Multi-module build: a `common` module holds the shared logic, the `fabric` module uses Fabric Loom, and the `neoforge` module uses ModDevGradle. Targets Fabric API `0.149.1+26.1.2` and NeoForge `26.1.2.75`.
 
 ---
 
