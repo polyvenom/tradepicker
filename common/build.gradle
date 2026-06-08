@@ -1,0 +1,33 @@
+plugins {
+	id 'net.neoforged.moddev' version "${mdg_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = "tradeoptimizer-common"
+}
+
+neoForge {
+	// Vanilla Mojmapped Minecraft only — NO loader. This module holds the loader-agnostic
+	// logic. Its compiled jar is not shipped; in Step 3 each loader module recompiles
+	// common's SOURCE against its own Mojmapped Minecraft (source-sharing). This config
+	// exists so :common compiles/validates standalone and IDEs resolve net.minecraft.* types.
+	neoFormVersion = project.neoform_version
+}
+
+// Java 25 — both MC 26.1.2 loaders are Java 25 platforms (NeoForge 26.1.2's own runtime
+// stack, FancyModLoader/NeoForm, ships Java 25 bytecode), so the whole project is uniform 25.
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}

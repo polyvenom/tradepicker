@@ -1,0 +1,12 @@
+modLoader = "javafml"
+loaderVersion = "[1,)"
+license = "CC0-1.0"
+
+[[mods]]
+modId = "tradeoptimizer"
+version = "0.0.0"
+displayName = "Trade Picker"
+description = "Pick villager trades from a menu instead of cycling."
+
+# Step 5 will add proper dependency constraints (NeoForge + Minecraft version ranges)
+# and wire the version string to the gradle mod_version via resource interpolation.

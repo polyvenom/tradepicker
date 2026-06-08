@@ -1,0 +1,36 @@
+plugins {
+	id 'net.neoforged.moddev' version "${mdg_version}"
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+	archivesName = "tradeoptimizer-neoforge"
+}
+
+neoForge {
+	version = project.neoforge_version
+
+	// Step 3/5 will source-share :common into this module and add client/server runs.
+	mods {
+		tradeoptimizer {
+			sourceSet sourceSets.main
+		}
+	}
+}
+
+// Java 25 — NeoForge 26.1.2's runtime stack (FancyModLoader/NeoForm) is Java 25 bytecode,
+// so the NeoForge artifact must target 25 to resolve those variants. Matches Fabric + Common.
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(25)
+	}
+}

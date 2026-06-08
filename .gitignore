@@ -9,3 +9,4 @@ run/
 *.project
 .settings/
 bin/
+logs/
