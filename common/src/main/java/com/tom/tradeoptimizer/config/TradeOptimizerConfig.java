@@ -3,7 +3,7 @@ package com.tom.tradeoptimizer.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.tom.tradeoptimizer.TradeOptimizer;
-import net.fabricmc.loader.api.FabricLoader;
+import com.tom.tradeoptimizer.platform.Services;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -49,7 +49,7 @@ public final class TradeOptimizerConfig {
     }
 
     private static Path path() {
-        return FabricLoader.getInstance().getConfigDir().resolve(FILE_NAME);
+        return Services.PLATFORM.getConfigDir().resolve(FILE_NAME);
     }
 
     private static TradeOptimizerConfig load() {

@@ -1,10 +1,14 @@
 package com.tom.tradeoptimizer.network;
 
 import com.tom.tradeoptimizer.TradeOptimizer;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 
+/**
+ * The custom-payload type handles, shared by every loader. These are plain vanilla
+ * {@link CustomPacketPayload.Type} constants — registration (and Fabric's registerLarge cap for
+ * the picker payload) happens per loader in that loader's networking implementation.
+ */
 public final class NetworkPayloads {
     private NetworkPayloads() {}
 
@@ -20,14 +24,4 @@ public final class NetworkPayloads {
 
     public static final CustomPacketPayload.Type<ResetVillagerC2S> RESET_VILLAGER_TYPE =
             new CustomPacketPayload.Type<>(id("reset_villager"));
-
-    public static void registerCommon() {
-        // OpenPickerS2C can carry ~100+ trade previews (every tradeable enchantment x
-        // every level for a librarian). Use registerLarge with a 2 MiB cap so the
-        // packet never silently fails to encode against the default 32 KB limit.
-        PayloadTypeRegistry.clientboundPlay().registerLarge(OPEN_PICKER_TYPE,
-                OpenPickerS2C.STREAM_CODEC, 2 * 1024 * 1024);
-        PayloadTypeRegistry.serverboundPlay().register(PICKER_SUBMIT_TYPE, PickerSubmitC2S.STREAM_CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(RESET_VILLAGER_TYPE, ResetVillagerC2S.STREAM_CODEC);
-    }
 }

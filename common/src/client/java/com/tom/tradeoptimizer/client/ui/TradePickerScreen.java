@@ -1,10 +1,10 @@
 package com.tom.tradeoptimizer.client.ui;
 
+import com.tom.tradeoptimizer.client.platform.ClientServices;
 import com.tom.tradeoptimizer.network.PickerSubmitC2S;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.TradeKey;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -129,7 +129,7 @@ public final class TradePickerScreen extends Screen {
         if (selectedIndices.size() != data.picksRequired()) return;
         List<TradeKey> picks = new ArrayList<>();
         for (int idx : selectedIndices) picks.add(data.available().get(idx).key());
-        ClientPlayNetworking.send(new PickerSubmitC2S(data.villagerId(), data.level(), picks));
+        ClientServices.NETWORK.sendToServer(new PickerSubmitC2S(data.villagerId(), data.level(), picks));
         onClose();
     }
 

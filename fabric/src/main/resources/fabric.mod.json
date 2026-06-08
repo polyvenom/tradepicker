@@ -14,7 +14,7 @@
   "environment": "*",
   "entrypoints": {
     "main": [
-      "com.tom.tradeoptimizer.TradeOptimizer"
+      "com.tom.tradeoptimizer.fabric.TradeOptimizerFabric"
     ],
     "client": [
       "com.tom.tradeoptimizer.client.TradeOptimizerClient"

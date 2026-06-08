@@ -11,10 +11,19 @@ base {
 
 neoForge {
 	// Vanilla Mojmapped Minecraft only — NO loader. This module holds the loader-agnostic
-	// logic. Its compiled jar is not shipped; in Step 3 each loader module recompiles
-	// common's SOURCE against its own Mojmapped Minecraft (source-sharing). This config
-	// exists so :common compiles/validates standalone and IDEs resolve net.minecraft.* types.
+	// logic. Its compiled jar is not shipped; each loader module recompiles common's SOURCE
+	// against its own Mojmapped Minecraft (source-sharing). This config exists so :common
+	// compiles/validates standalone and IDEs resolve net.minecraft.* types.
 	neoFormVersion = project.neoform_version
+}
+
+// Client-side shared code (UI, client networking seam) lives under src/client/java. NeoForm
+// provides the full client Minecraft, so :common compiles it in one pass. The loader modules
+// map this directory to their own client source set (Fabric) or single set (NeoForge).
+sourceSets {
+	main {
+		java.srcDir 'src/client/java'
+	}
 }
 
 // Java 25 — both MC 26.1.2 loaders are Java 25 platforms (NeoForge 26.1.2's own runtime

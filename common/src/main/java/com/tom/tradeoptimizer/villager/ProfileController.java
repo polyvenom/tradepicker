@@ -1,13 +1,11 @@
 package com.tom.tradeoptimizer.villager;
 
 import com.tom.tradeoptimizer.TradeOptimizer;
-import com.tom.tradeoptimizer.mixin.VillagerInvoker;
-import com.tom.tradeoptimizer.network.NetworkPayloads;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
+import com.tom.tradeoptimizer.platform.Services;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -97,7 +95,7 @@ public final class ProfileController {
         // Intercepting the click would leave the villager doing nothing at all, so step
         // aside and let vanilla handle trading normally. Nudge the player once (per server
         // session) so they understand why picking isn't available.
-        if (!ServerPlayNetworking.canSend(player, NetworkPayloads.OPEN_PICKER_TYPE)) {
+        if (!Services.NETWORK.canSendOpenPicker(player)) {
             if (warnedNoModClients.add(player.getUUID())) {
                 player.sendSystemMessage(Component.literal(
                         "Trade Picker is on the server but not your client — install it to choose "
@@ -457,12 +455,12 @@ public final class ProfileController {
                 2,
                 available
         );
-        if (!ServerPlayNetworking.canSend(player, NetworkPayloads.OPEN_PICKER_TYPE)) {
+        if (!Services.NETWORK.canSendOpenPicker(player)) {
             TradeOptimizer.LOGGER.warn("Client can't receive OPEN_PICKER (mod missing on client?)");
             return;
         }
         try {
-            ServerPlayNetworking.send(player, payload);
+            Services.NETWORK.sendOpenPicker(player, payload);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("Failed to send picker payload ({} trades)",
                     available.size(), e);
@@ -564,6 +562,6 @@ public final class ProfileController {
         for (MerchantOffer offer : offers) {
             offer.resetSpecialPriceDiff();
         }
-        ((VillagerInvoker) villager).tradeoptimizer$updateSpecialPrices(player);
+        Services.PLATFORM.updateVillagerSpecialPrices(villager, player);
     }
 }

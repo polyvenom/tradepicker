@@ -1,7 +1,7 @@
 package com.tom.tradeoptimizer.client.ui;
 
+import com.tom.tradeoptimizer.client.platform.ClientServices;
 import com.tom.tradeoptimizer.network.ResetVillagerC2S;
-import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -36,7 +36,7 @@ public final class ResetConfirmScreen extends Screen {
     }
 
     private void doReset() {
-        ClientPlayNetworking.send(new ResetVillagerC2S(villagerId));
+        ClientServices.NETWORK.sendToServer(new ResetVillagerC2S(villagerId));
         // Close back to the world — server will message the player.
         minecraft.setScreen(null);
     }

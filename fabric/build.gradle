@@ -57,6 +57,14 @@ loom {
 	}
 }
 
+// Source-sharing: compile the shared :common code into this Fabric jar. Common's main
+// (server + common logic) joins Fabric's main source set; common's client joins Fabric's
+// client set (so client-only Minecraft types resolve). It is recompiled here against Loom's
+// Mojmapped Minecraft, so no cross-project remapping is needed, and Loom's mixin annotation
+// processor still runs over any shared mixin sources.
+sourceSets.main.java.srcDir project(':common').file('src/main/java')
+sourceSets.client.java.srcDir project(':common').file('src/client/java')
+
 // Give the gametest source set everything main has (Minecraft, Fabric API, and the
 // remapped gametest API via modImplementation) plus main's compiled output.
 sourceSets.gametest.compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
