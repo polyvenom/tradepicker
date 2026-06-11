@@ -81,6 +81,36 @@ public final class OfferFactory {
         return out;
     }
 
+    /**
+     * How many enchanted-book trade TEMPLATES the (profession, level) trade set contains. Vanilla
+     * grants at most this many book trades at that level — each template yields a single book trade —
+     * so the picker uses it as the per-level book cap when {@code vanillaBookLimits} is on. This
+     * counts the raw templates, NOT the per-(enchantment × level) cards {@link #enumerate} expands
+     * each book template into.
+     */
+    public static int countBookTemplates(ServerLevel level, Villager villager, ResourceKey<TradeSet> tradeSetKey) {
+        HolderLookup.Provider registries = level.registryAccess();
+        Optional<Holder.Reference<TradeSet>> setRef =
+                registries.lookupOrThrow(Registries.TRADE_SET).get(tradeSetKey);
+        if (setRef.isEmpty()) return 0;
+        TradeSet tradeSet = setRef.get().value();
+
+        int count = 0;
+        for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
+            Optional<ResourceKey<VillagerTrade>> keyOpt = holder.unwrapKey();
+            if (keyOpt.isEmpty()) continue;
+            try {
+                TradeKey flatKey = new TradeKey(keyOpt.get().identifier());
+                LootContext ctx = buildContext(level, villager, tradeSet, costRandom(villager, flatKey));
+                MerchantOffer preview = holder.value().getOffer(ctx);
+                if (preview != null && preview.getResult().is(Items.ENCHANTED_BOOK)) count++;
+            } catch (Exception e) {
+                // Skip — same templates enumerate() would skip; not a book slot we can offer.
+            }
+        }
+        return count;
+    }
+
     public static Optional<MerchantOffer> generate(ServerLevel level, Villager villager, TradeKey key, int merchantLevel) {
         if (isBookKey(key)) {
             return generateBookOffer(level, villager, key, merchantLevel);
@@ -211,7 +241,7 @@ public final class OfferFactory {
     // Package-private (not private) so BookKeyFormatGameTest can round-trip the key encoding.
     record SyntheticBookKey(Identifier enchantmentId, int level) {}
 
-    private static boolean isBookKey(TradeKey key) {
+    public static boolean isBookKey(TradeKey key) {
         return key.id().getNamespace().equals(TradeOptimizer.MOD_ID)
                 && key.id().getPath().startsWith(BOOK_PREFIX);
     }

@@ -81,6 +81,9 @@ public final class TradePickerScreen extends Screen {
 
         titleText = String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
                 shortProf(data.profession()), levelName(data.level()), data.picksRequired());
+        if (data.maxBookPicks() < data.picksRequired()) {
+            titleText += String.format(Locale.ROOT, " (max %d book)", data.maxBookPicks());
+        }
         rebuildStatusText();
 
         // Search box (centered horizontally)
@@ -192,9 +195,10 @@ public final class TradePickerScreen extends Screen {
     private boolean drawCard(GuiGraphicsExtractor g, AvailableTrade trade, String enchLabel,
                              int x, int y, int idx, int mouseX, int mouseY) {
         boolean selected = selectedIndices.contains(idx);
+        boolean blocked = isBookBlocked(idx);
         boolean hovered = mouseX >= x && mouseX < x + CARD_WIDTH && mouseY >= y && mouseY < y + CARD_HEIGHT;
 
-        int bg = selected ? 0xFF55AA55 : hovered ? 0xFF606060 : 0xFF404040;
+        int bg = selected ? 0xFF55AA55 : blocked ? 0xFF2A2A2A : hovered ? 0xFF606060 : 0xFF404040;
         g.fill(x, y, x + CARD_WIDTH, y + CARD_HEIGHT, bg);
         int border = selected ? 0xFFAAFFAA : 0xFF808080;
         g.fill(x, y, x + CARD_WIDTH, y + 1, border);
@@ -227,7 +231,7 @@ public final class TradePickerScreen extends Screen {
             int labelX = afterA + 18;
             int maxWidth = (x + CARD_WIDTH - LABEL_RIGHT_PAD) - labelX;
             String fitted = fitText(enchLabel, maxWidth);
-            g.text(this.font, fitted, labelX, y + 9, 0xFFFFFFAA);
+            g.text(this.font, fitted, labelX, y + 9, blocked ? 0xFF707070 : 0xFFFFFFAA);
         }
 
         return hovered;
@@ -338,10 +342,34 @@ public final class TradePickerScreen extends Screen {
         if (selectedIndices.contains(idx)) {
             selectedIndices.remove(idx);
         } else if (selectedIndices.size() < data.picksRequired()) {
+            // Vanilla book-limit mode: don't let books past the per-level cap. When the toggle is
+            // off, maxBookPicks == picksRequired so this never blocks anything.
+            if (isBookCard(idx) && selectedBookCount() >= data.maxBookPicks()) {
+                return;
+            }
             selectedIndices.add(idx);
         }
         confirmBtn.active = (selectedIndices.size() == data.picksRequired());
         rebuildStatusText();
+    }
+
+    private boolean isBookCard(int idx) {
+        return data.available().get(idx).previewOffer().getResult().is(Items.ENCHANTED_BOOK);
+    }
+
+    private int selectedBookCount() {
+        int c = 0;
+        for (int i : selectedIndices) {
+            if (isBookCard(i)) c++;
+        }
+        return c;
+    }
+
+    /** A book card the player can't currently pick because the per-level book cap is reached. */
+    private boolean isBookBlocked(int idx) {
+        return isBookCard(idx)
+                && !selectedIndices.contains(idx)
+                && selectedBookCount() >= data.maxBookPicks();
     }
 
     @Override

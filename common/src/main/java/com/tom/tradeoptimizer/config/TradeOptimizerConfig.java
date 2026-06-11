@@ -43,6 +43,23 @@ public final class TradeOptimizerConfig {
         save();
     }
 
+    /**
+     * {@code false} (default): the picker lets you choose up to {@code picksRequired} enchanted
+     * books at every level — the mod's generous default. {@code true}: cap the number of book
+     * picks per level to how many book trades vanilla actually offers there (usually one), forcing
+     * the remaining pick(s) onto non-book trades for a vanilla-accurate librarian economy.
+     */
+    private boolean vanillaBookLimits = false;
+
+    public boolean vanillaBookLimits() {
+        return vanillaBookLimits;
+    }
+
+    public void setVanillaBookLimits(boolean value) {
+        this.vanillaBookLimits = value;
+        save();
+    }
+
     public static TradeOptimizerConfig get() {
         if (instance == null) instance = load();
         return instance;

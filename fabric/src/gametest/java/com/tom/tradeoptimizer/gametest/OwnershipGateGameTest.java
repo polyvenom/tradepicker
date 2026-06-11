@@ -1,5 +1,6 @@
 package com.tom.tradeoptimizer.gametest;
 
+import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
@@ -186,6 +187,39 @@ public class OwnershipGateGameTest {
                 "reset must clear the villager's tradingPlayer (stale-session flash guard)");
         helper.assertTrue(owner.containerMenu == owner.inventoryMenu,
                 "reset must close the player's stale merchant container (stale-session flash guard)");
+        helper.succeed();
+    }
+
+    /**
+     * With vanillaBookLimits enabled, a profession with NO book trades (farmer) is unaffected: the
+     * per-level book cap relaxes so the two non-book picks still go through (no softlock). The
+     * librarian book-cap path itself isn't headless-testable — the gametest server's experimental
+     * Trade Rebalance datapack returns null book previews, so 0 books enumerate — and is validated
+     * in the live game instead.
+     */
+    @GameTest
+    public void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 1);
+        UUID villagerId = villager.getUUID();
+        VillagerProfileState state = VillagerProfileState.get(level);
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+
+        TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
+        boolean original = cfg.vanillaBookLimits();
+        cfg.setVanillaBookLimits(true);
+        try {
+            ResourceKey<TradeSet> key = villager.getVillagerData().profession().value().getTrades(1);
+            helper.assertTrue(OfferFactory.countBookTemplates(level, villager, key) == 0,
+                    "farmer level 1 should have no book templates");
+            ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+            VillagerProfile p = state.get(villagerId);
+            helper.assertTrue(p != null && p.picksFor(1).size() == 2,
+                    "vanillaBookLimits must not block non-book picks (got "
+                            + (p == null ? "no profile" : p.picksFor(1).size()) + ")");
+        } finally {
+            cfg.setVanillaBookLimits(original);
+        }
         helper.succeed();
     }
 

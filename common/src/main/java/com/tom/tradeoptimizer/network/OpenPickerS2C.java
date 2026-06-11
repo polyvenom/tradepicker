@@ -17,6 +17,9 @@ import java.util.UUID;
  *  profession       — display string ("FARMER", "LIBRARIAN", etc.)
  *  level            — the merchant level being picked (1-5)
  *  picksRequired    — how many trades the player must select (vanilla = 2)
+ *  maxBookPicks     — how many of those picks may be enchanted books. Equals picksRequired when
+ *                     vanillaBookLimits is off (no effective limit); when on it's vanilla's
+ *                     per-level book-trade count (usually 1), so the rest must be non-book trades.
  *  available        — every possible trade for (profession, level) with min-cost preview
  */
 public record OpenPickerS2C(
@@ -24,6 +27,7 @@ public record OpenPickerS2C(
         String profession,
         int level,
         int picksRequired,
+        int maxBookPicks,
         List<AvailableTrade> available
 ) implements CustomPacketPayload {
 
@@ -41,6 +45,7 @@ public record OpenPickerS2C(
                 buf.writeUtf(p.profession);
                 buf.writeVarInt(p.level);
                 buf.writeVarInt(p.picksRequired);
+                buf.writeVarInt(p.maxBookPicks);
                 buf.writeVarInt(p.available.size());
                 for (AvailableTrade t : p.available) AvailableTrade.STREAM_CODEC.encode(buf, t);
             },
@@ -49,13 +54,14 @@ public record OpenPickerS2C(
                 String prof = buf.readUtf();
                 int level = buf.readVarInt();
                 int required = buf.readVarInt();
+                int maxBookPicks = buf.readVarInt();
                 int n = buf.readVarInt();
                 if (n < 0 || n > MAX_TRADES) {
                     throw new DecoderException("OpenPickerS2C trade count out of range: " + n);
                 }
                 List<AvailableTrade> list = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) list.add(AvailableTrade.STREAM_CODEC.decode(buf));
-                return new OpenPickerS2C(id, prof, level, required, list);
+                return new OpenPickerS2C(id, prof, level, required, maxBookPicks, list);
             }
     );
 

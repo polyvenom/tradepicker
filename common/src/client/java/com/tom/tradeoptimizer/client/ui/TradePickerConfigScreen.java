@@ -45,6 +45,14 @@ public class TradePickerConfigScreen extends Screen {
                 .onValueChange((cb, v) -> TradeOptimizerConfig.get().setVanillaPricing(v))
                 .build());
 
+        this.addRenderableWidget(Checkbox.builder(
+                        Component.translatable("tradeoptimizer.config.vanillaBookLimits"), this.font)
+                .pos(leftX, 80)
+                .selected(TradeOptimizerConfig.get().vanillaBookLimits())
+                .tooltip(Tooltip.create(Component.translatable("tradeoptimizer.config.vanillaBookLimits.tip")))
+                .onValueChange((cb, v) -> TradeOptimizerConfig.get().setVanillaBookLimits(v))
+                .build());
+
         this.addRenderableWidget(Button.builder(
                         Component.translatable("tradeoptimizer.config.done"),
                         btn -> this.onClose())

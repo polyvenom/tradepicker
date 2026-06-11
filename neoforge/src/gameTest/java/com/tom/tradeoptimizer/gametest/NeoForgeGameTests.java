@@ -82,6 +82,7 @@ public final class NeoForgeGameTests {
             helper.register(fnKey("non_owner_rejected"), (Consumer<GameTestHelper>) NeoForgeGameTests::nonOwnerIsRejected);
             helper.register(fnKey("op_bypasses"), (Consumer<GameTestHelper>) NeoForgeGameTests::opBypassesGates);
             helper.register(fnKey("reset_closes_session"), (Consumer<GameTestHelper>) NeoForgeGameTests::resetClosesStaleTradeSession);
+            helper.register(fnKey("book_limit_nonbook"), (Consumer<GameTestHelper>) NeoForgeGameTests::vanillaBookLimitsDoesNotBlockNonBookPicks);
             helper.register(fnKey("codec_roundtrip"), (Consumer<GameTestHelper>) NeoForgeGameTests::roundTripsThroughCodec);
             helper.register(fnKey("price_seed"), (Consumer<GameTestHelper>) NeoForgeGameTests::seededPriceIsStableAndMatchesPreview);
             helper.register(fnKey("legacy_bucketing"), (Consumer<GameTestHelper>) NeoForgeLegacyBucketingTest::bucketsLegacyOffersPerLevel);
@@ -96,6 +97,7 @@ public final class NeoForgeGameTests {
         for (String name : List.of(
                 "farmer_enumerates", "restock_levelup", "restock_normal",
                 "owner_pick_reset", "non_owner_rejected", "op_bypasses", "reset_closes_session",
+                "book_limit_nonbook",
                 "codec_roundtrip", "price_seed", "legacy_bucketing", "book_key_format")) {
             event.registerTest(Identifier.fromNamespaceAndPath(NS, name),
                     new FunctionGameTestInstance(fnKey(name),
@@ -316,6 +318,31 @@ public final class NeoForgeGameTests {
                 "reset must clear the villager's tradingPlayer (stale-session flash guard)");
         helper.assertTrue(owner.containerMenu == owner.inventoryMenu,
                 "reset must close the player's stale merchant container (stale-session flash guard)");
+        helper.succeed();
+    }
+
+    static void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 1);
+        UUID villagerId = villager.getUUID();
+        VillagerProfileState state = VillagerProfileState.get(level);
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+
+        TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
+        boolean original = cfg.vanillaBookLimits();
+        cfg.setVanillaBookLimits(true);
+        try {
+            ResourceKey<TradeSet> key = villager.getVillagerData().profession().value().getTrades(1);
+            helper.assertTrue(OfferFactory.countBookTemplates(level, villager, key) == 0,
+                    "farmer level 1 should have no book templates");
+            ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+            VillagerProfile p = state.get(villagerId);
+            helper.assertTrue(p != null && p.picksFor(1).size() == 2,
+                    "vanillaBookLimits must not block non-book picks (got "
+                            + (p == null ? "no profile" : p.picksFor(1).size()) + ")");
+        } finally {
+            cfg.setVanillaBookLimits(original);
+        }
         helper.succeed();
     }
 

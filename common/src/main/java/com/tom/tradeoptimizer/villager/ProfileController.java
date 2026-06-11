@@ -1,6 +1,7 @@
 package com.tom.tradeoptimizer.villager;
 
 import com.tom.tradeoptimizer.TradeOptimizer;
+import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.platform.Services;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
@@ -252,6 +253,23 @@ public final class ProfileController {
             return;
         }
 
+        // 3) Enforce the per-level book cap (vanillaBookLimits). The client greys out excess book
+        //    selections, but a tampered client could submit more — reject here. Uses the same
+        //    bookPickCap as sendPicker (incl. the no-softlock relaxation), so a legitimate
+        //    submission is never rejected. No-op when the toggle is off (cap == picksRequired).
+        int bookCap = bookPickCap(sl, villager, tradeSetKey, available, MAX_TRADES_PER_LEVEL);
+        int bookPicks = 0;
+        for (TradeKey k : validatedPicks) {
+            if (OfferFactory.isBookKey(k)) bookPicks++;
+        }
+        if (bookPicks > bookCap) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: {} book picks exceed cap {} for {} level {}",
+                    bookPicks, bookCap, profName, level);
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: too many enchanted-book trades for this villager level."));
+            return;
+        }
+
         VillagerProfileState state = VillagerProfileState.get(sl);
         VillagerProfile profile = state.get(villagerId);
         // If a profile already exists with a different owner, refuse — only the owner
@@ -408,6 +426,29 @@ public final class ProfileController {
         return Math.min(MAX_TRADES_PER_LEVEL, entries);
     }
 
+    /**
+     * How many of the {@code picksRequired} selections may be enchanted books at this level.
+     *
+     * With {@code vanillaBookLimits} OFF this is just {@code picksRequired} — no effective limit, so
+     * the picker behaves exactly as before. With it ON it's vanilla's per-level book-trade count
+     * ({@link OfferFactory#countBookTemplates}, usually 1), forcing the remaining picks onto non-book
+     * trades. The cap is never lowered so far that the level can't be filled: if there aren't enough
+     * non-book options to cover the rest, it rises so books can fill the gap (prevents a softlock on
+     * an all-books pool). The server and the client compute this identically, so a legitimate
+     * submission is never rejected.
+     */
+    private static int bookPickCap(ServerLevel level, Villager villager, ResourceKey<TradeSet> tradeSetKey,
+                                   List<AvailableTrade> available, int picksRequired) {
+        if (!TradeOptimizerConfig.get().vanillaBookLimits()) return picksRequired;
+        int nonBookCards = 0;
+        for (AvailableTrade t : available) {
+            if (!OfferFactory.isBookKey(t.key())) nonBookCards++;
+        }
+        int cap = Math.min(OfferFactory.countBookTemplates(level, villager, tradeSetKey), picksRequired);
+        cap = Math.max(cap, picksRequired - nonBookCards); // never make the level impossible to fill
+        return Math.min(cap, picksRequired);
+    }
+
     private static void sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
         ServerLevel level = player.level();
         VillagerProfession prof = villager.getVillagerData().profession().value();
@@ -461,11 +502,14 @@ public final class ProfileController {
         TradeOptimizer.LOGGER.info("Picker for {} level {}: {} trade options",
                 profile.profession(), merchantLevel, available.size());
 
+        int maxBookPicks = bookPickCap(level, villager, tradeSetKey, available, MAX_TRADES_PER_LEVEL);
+
         OpenPickerS2C payload = new OpenPickerS2C(
                 villager.getUUID(),
                 profile.profession(),
                 merchantLevel,
-                2,
+                MAX_TRADES_PER_LEVEL,
+                maxBookPicks,
                 available
         );
         if (!Services.NETWORK.canSendOpenPicker(player)) {
