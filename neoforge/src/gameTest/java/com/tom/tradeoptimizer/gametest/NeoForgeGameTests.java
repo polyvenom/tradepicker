@@ -81,6 +81,7 @@ public final class NeoForgeGameTests {
             helper.register(fnKey("owner_pick_reset"), (Consumer<GameTestHelper>) NeoForgeGameTests::ownerCanPickThenReset);
             helper.register(fnKey("non_owner_rejected"), (Consumer<GameTestHelper>) NeoForgeGameTests::nonOwnerIsRejected);
             helper.register(fnKey("op_bypasses"), (Consumer<GameTestHelper>) NeoForgeGameTests::opBypassesGates);
+            helper.register(fnKey("reset_closes_session"), (Consumer<GameTestHelper>) NeoForgeGameTests::resetClosesStaleTradeSession);
             helper.register(fnKey("codec_roundtrip"), (Consumer<GameTestHelper>) NeoForgeGameTests::roundTripsThroughCodec);
             helper.register(fnKey("price_seed"), (Consumer<GameTestHelper>) NeoForgeGameTests::seededPriceIsStableAndMatchesPreview);
             helper.register(fnKey("legacy_bucketing"), (Consumer<GameTestHelper>) NeoForgeLegacyBucketingTest::bucketsLegacyOffersPerLevel);
@@ -94,7 +95,7 @@ public final class NeoForgeGameTests {
                 event.registerEnvironment(ENV_ID, new TestEnvironmentDefinition.AllOf(List.of()));
         for (String name : List.of(
                 "farmer_enumerates", "restock_levelup", "restock_normal",
-                "owner_pick_reset", "non_owner_rejected", "op_bypasses",
+                "owner_pick_reset", "non_owner_rejected", "op_bypasses", "reset_closes_session",
                 "codec_roundtrip", "price_seed", "legacy_bucketing", "book_key_format")) {
             event.registerTest(Identifier.fromNamespaceAndPath(NS, name),
                     new FunctionGameTestInstance(fnKey(name),
@@ -293,6 +294,28 @@ public final class NeoForgeGameTests {
         helper.assertTrue(after.picksFor(1).isEmpty() && after.picksFor(2).isEmpty(), "op reset should wipe picks");
         helper.assertTrue(after.owner().isPresent() && after.owner().get().equals(owner.getUUID()),
                 "op reset should preserve the original owner");
+        helper.succeed();
+    }
+
+    static void resetClosesStaleTradeSession(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 1);
+        UUID villagerId = villager.getUUID();
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+
+        // Submitting picks applies offers and opens the merchant (setTradingPlayer + openTradingScreen),
+        // so afterward the player has a live trade session — exactly the state a reset fires from.
+        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        helper.assertTrue(villager.getTradingPlayer() == owner,
+                "precondition: villager should be trading with the player after a pick");
+        helper.assertTrue(owner.containerMenu != owner.inventoryMenu,
+                "precondition: the player should have the merchant container open after a pick");
+
+        ProfileController.onReset(owner, villagerId);
+        helper.assertTrue(villager.getTradingPlayer() == null,
+                "reset must clear the villager's tradingPlayer (stale-session flash guard)");
+        helper.assertTrue(owner.containerMenu == owner.inventoryMenu,
+                "reset must close the player's stale merchant container (stale-session flash guard)");
         helper.succeed();
     }
 

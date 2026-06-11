@@ -332,6 +332,19 @@ public final class ProfileController {
         villager.setVillagerXp(0);
         villager.setOffers(new MerchantOffers());
 
+        // Reset is driven from the merchant screen (Reset button -> confirm dialog), but the client
+        // only swaps screens; it never asks the server to close the trade container. So the
+        // server-side MerchantMenu and the villager's tradingPlayer both linger past the reset.
+        // The next openTradingScreen would then close that stale menu *during* its own openMenu, and
+        // the stale menu's removed() nulls tradingPlayer right after we set it -> the freshly opened
+        // menu fails MerchantMenu.stillValid() on the next tick and self-closes after one frame
+        // (the "first reopen after reset flashes, second is fine" bug). Tear the stale session down
+        // now so the next open starts from a clean slate.
+        if (player.containerMenu != player.inventoryMenu) {
+            player.closeContainer();
+        }
+        villager.setTradingPlayer(null);
+
         player.sendSystemMessage(Component.literal(
                 "Villager reset to Novice. Right-click to pick new trades."));
     }

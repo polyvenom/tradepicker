@@ -160,6 +160,35 @@ public class OwnershipGateGameTest {
         helper.succeed();
     }
 
+    /**
+     * Resetting must leave no stale trade session behind: it closes the player's open merchant
+     * container and clears the villager's tradingPlayer. Otherwise the next openTradingScreen closes
+     * the lingering menu mid-open, which nulls the freshly-set tradingPlayer, so the new menu fails
+     * MerchantMenu.stillValid() on the next tick — the "first reopen after reset flashes" bug.
+     */
+    @GameTest
+    public void resetClosesStaleTradeSession(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 1);
+        UUID villagerId = villager.getUUID();
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+
+        // Submitting picks applies offers and opens the merchant (setTradingPlayer + openTradingScreen),
+        // so afterward the player has a live trade session — exactly the state a reset fires from.
+        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        helper.assertTrue(villager.getTradingPlayer() == owner,
+                "precondition: villager should be trading with the player after a pick");
+        helper.assertTrue(owner.containerMenu != owner.inventoryMenu,
+                "precondition: the player should have the merchant container open after a pick");
+
+        ProfileController.onReset(owner, villagerId);
+        helper.assertTrue(villager.getTradingPlayer() == null,
+                "reset must clear the villager's tradingPlayer (stale-session flash guard)");
+        helper.assertTrue(owner.containerMenu == owner.inventoryMenu,
+                "reset must close the player's stale merchant container (stale-session flash guard)");
+        helper.succeed();
+    }
+
     // -------------------------------------------------------------------------
 
     private static Villager spawnFarmer(GameTestHelper helper, int villagerLevel) {
