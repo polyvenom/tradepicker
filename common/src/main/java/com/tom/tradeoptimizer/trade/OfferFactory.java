@@ -246,6 +246,16 @@ public final class OfferFactory {
                 && key.id().getPath().startsWith(BOOK_PREFIX);
     }
 
+    /**
+     * Public extension API: the synthetic TradeKey for an enchanted-book trade at a given enchantment
+     * and level. Add-ons (Trade Picker: Mastery) build one and pass it to {@link #generate} to get a
+     * min-cost enchanted-book MerchantOffer for a librarian, reusing the proven book-generation path
+     * instead of constructing the ItemStack by hand.
+     */
+    public static TradeKey bookTradeKey(Identifier enchantId, int level) {
+        return buildSyntheticBookKey(enchantId, level);
+    }
+
     // Package-private (not private) so BookKeyFormatGameTest can verify the written format.
     static TradeKey buildSyntheticBookKey(Identifier enchantId, int level) {
         // Level-first, all-lowercase form: book/<level>/<ench_ns>/<ench_path>. The level leads so
