@@ -1,6 +1,8 @@
 package com.tom.tradeoptimizer.villager;
 
 import com.tom.tradeoptimizer.TradeOptimizer;
+import com.tom.tradeoptimizer.api.TradePickerApi;
+import com.tom.tradeoptimizer.api.VillagerInteractionHandler;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.platform.Services;
@@ -90,6 +92,15 @@ public final class ProfileController {
         // Nitwits and unemployed villagers can't trade — bail.
         if (profHolder.is(VillagerProfession.NITWIT) || profHolder.is(VillagerProfession.NONE)) {
             return true;
+        }
+
+        // Add-on takeover hook (e.g. Trade Picker: Mastery). If an add-on claims this villager it
+        // fully replaces our picker flow for it — we stop here and let it drive the interaction.
+        // With no add-on registered this loop is empty and behaviour is unchanged.
+        for (VillagerInteractionHandler handler : TradePickerApi.interactionHandlers()) {
+            if (handler.onInteract(player, villager) == VillagerInteractionHandler.Result.TAKEOVER) {
+                return false; // add-on handled it; the listener returns SUCCESS
+            }
         }
 
         // If the player's client doesn't have Trade Picker, we can't show the picker.
