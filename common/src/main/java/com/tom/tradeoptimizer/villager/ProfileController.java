@@ -455,6 +455,10 @@ public final class ProfileController {
         for (AvailableTrade t : available) {
             if (!OfferFactory.isBookKey(t.key())) nonBookCards++;
         }
+        // No book trades in this pool (e.g. a non-librarian like a stonemason) — there's nothing to
+        // cap, so report the normal pick count. This also stops the picker from showing a redundant
+        // "(max 0 book)" hint for villagers that sell no books at all.
+        if (nonBookCards == available.size()) return picksRequired;
         int cap = Math.min(OfferFactory.countBookTemplates(level, villager, tradeSetKey), picksRequired);
         cap = Math.max(cap, picksRequired - nonBookCards); // never make the level impossible to fill
         return Math.min(cap, picksRequired);
