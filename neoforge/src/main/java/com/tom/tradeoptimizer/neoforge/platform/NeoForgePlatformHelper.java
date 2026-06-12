@@ -1,9 +1,11 @@
 package com.tom.tradeoptimizer.neoforge.platform;
 
+import com.tom.tradeoptimizer.mixin.AbstractVillagerAccessor;
 import com.tom.tradeoptimizer.mixin.VillagerInvoker;
 import com.tom.tradeoptimizer.platform.IPlatformHelper;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.trading.MerchantOffers;
 import net.neoforged.fml.ModList;
 import net.neoforged.fml.loading.FMLPaths;
 
@@ -26,5 +28,10 @@ public final class NeoForgePlatformHelper implements IPlatformHelper {
     public void updateVillagerSpecialPrices(Villager villager, ServerPlayer player) {
         // Same @Invoker mixin approach as Fabric (NeoForge also runs SpongePowered Mixin).
         ((VillagerInvoker) villager).tradeoptimizer$updateSpecialPrices(player);
+    }
+
+    @Override
+    public void setVillagerOffers(Villager villager, MerchantOffers offers) {
+        ((AbstractVillagerAccessor) villager).tradeoptimizer$setOffers(offers);
     }
 }

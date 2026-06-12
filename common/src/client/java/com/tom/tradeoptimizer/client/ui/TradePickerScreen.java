@@ -5,11 +5,10 @@ import com.tom.tradeoptimizer.network.PickerSubmitC2S;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.TradeKey;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -151,11 +150,11 @@ public final class TradePickerScreen extends Screen {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
-        super.extractRenderState(g, mouseX, mouseY, partial);
+    public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        super.render(g, mouseX, mouseY, partial);
 
-        g.text(this.font, titleText, (this.width - this.font.width(titleText)) / 2, 16, 0xFFFFFFFF);
-        g.text(this.font, statusText, (this.width - this.font.width(statusText)) / 2, 30, 0xFFAAAAAA);
+        g.drawString(this.font, titleText, (this.width - this.font.width(titleText)) / 2, 16, 0xFFFFFFFF);
+        g.drawString(this.font, statusText, (this.width - this.font.width(statusText)) / 2, 30, 0xFFAAAAAA);
 
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
         int visible = visibleRows();
@@ -179,20 +178,20 @@ public final class TradePickerScreen extends Screen {
             String label = cardTooltips.get(hoveredIdx);
             int tx = (this.width - this.font.width(label)) / 2;
             int ty = this.height - 50;
-            g.text(this.font, label, tx, ty, 0xFFFFCC55);
+            g.drawString(this.font, label, tx, ty, 0xFFFFCC55);
         }
 
         if (filtered.isEmpty()) {
             String msg = "No trades match your search.";
-            g.text(this.font, msg, (this.width - this.font.width(msg)) / 2, TOP_PAD + 12, 0xFFAAAAAA);
+            g.drawString(this.font, msg, (this.width - this.font.width(msg)) / 2, TOP_PAD + 12, 0xFFAAAAAA);
         } else if (maxScroll() > 0) {
             String hint = "Scroll for more (page " + (scrollRow + 1) + " / " + (maxScroll() + 1) + ")";
             int hintY = this.height - 50 - (hoveredIdx >= 0 ? 12 : 0);
-            g.text(this.font, hint, (this.width - this.font.width(hint)) / 2, hintY, 0xFF888888);
+            g.drawString(this.font, hint, (this.width - this.font.width(hint)) / 2, hintY, 0xFF888888);
         }
     }
 
-    private boolean drawCard(GuiGraphicsExtractor g, AvailableTrade trade, String enchLabel,
+    private boolean drawCard(GuiGraphics g, AvailableTrade trade, String enchLabel,
                              int x, int y, int idx, int mouseX, int mouseY) {
         boolean selected = selectedIndices.contains(idx);
         boolean blocked = isBookBlocked(idx);
@@ -213,25 +212,25 @@ public final class TradePickerScreen extends Screen {
 
         int ix = x + 4;
         int iy = y + 4;
-        g.item(a, ix, iy);
-        g.itemDecorations(this.font, a, ix, iy);
+        g.renderItem(a, ix, iy);
+        g.renderItemDecorations(this.font, a, ix, iy);
 
         int afterA = ix + 18;
         if (!b.isEmpty()) {
-            g.item(b, afterA, iy);
-            g.itemDecorations(this.font, b, afterA, iy);
+            g.renderItem(b, afterA, iy);
+            g.renderItemDecorations(this.font, b, afterA, iy);
             afterA += 18;
         }
-        g.text(this.font, "→", afterA, iy + 4, 0xFFCCCCCC);
+        g.drawString(this.font, "→", afterA, iy + 4, 0xFFCCCCCC);
         afterA += 8;
-        g.item(r, afterA, iy);
-        g.itemDecorations(this.font, r, afterA, iy);
+        g.renderItem(r, afterA, iy);
+        g.renderItemDecorations(this.font, r, afterA, iy);
 
         if (!enchLabel.isEmpty()) {
             int labelX = afterA + 18;
             int maxWidth = (x + CARD_WIDTH - LABEL_RIGHT_PAD) - labelX;
             String fitted = fitText(enchLabel, maxWidth);
-            g.text(this.font, fitted, labelX, y + 9, blocked ? 0xFF707070 : 0xFFFFFFAA);
+            g.drawString(this.font, fitted, labelX, y + 9, blocked ? 0xFF707070 : 0xFFFFFFAA);
         }
 
         return hovered;
@@ -276,7 +275,7 @@ public final class TradePickerScreen extends Screen {
         if (enchants == null || enchants.isEmpty()) return "";
         Holder<Enchantment> ench = enchants.keySet().iterator().next();
         int level = enchants.getLevel(ench);
-        String pathStr = ench.unwrapKey().map(k -> k.identifier().getPath()).orElse("enchant");
+        String pathStr = ench.unwrapKey().map(k -> k.location().getPath()).orElse("enchant");
         String base = capitalize(pathStr.replace('_', ' '));
         // Match vanilla: single-level enchantments (Mending, Silk Touch, Infinity, ...)
         // display with no numeral. Multi-level enchantments always show their numeral.
@@ -305,15 +304,15 @@ public final class TradePickerScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        if (event.button() != 0) return super.mouseClicked(event, doubleClick);
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button != 0) return super.mouseClicked(mouseX, mouseY, button);
 
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
         int visible = visibleRows();
         int firstSlot = scrollRow * COLUMNS;
         int lastSlot = Math.min(filtered.size(), firstSlot + visible * COLUMNS);
 
-        double mx = event.x(), my = event.y();
+        double mx = mouseX, my = mouseY;
         for (int slotPos = firstSlot; slotPos < lastSlot; slotPos++) {
             int dataIdx = filtered.get(slotPos);
             int posInPage = slotPos - firstSlot;
@@ -326,7 +325,7 @@ public final class TradePickerScreen extends Screen {
                 return true;
             }
         }
-        return super.mouseClicked(event, doubleClick);
+        return super.mouseClicked(mouseX, mouseY, button);
     }
 
     @Override

@@ -1,13 +1,13 @@
 package com.tom.tradeoptimizer.villager;
 
-import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.entity.npc.villager.VillagerProfession;
-import net.minecraft.world.entity.npc.villager.VillagerType;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.npc.VillagerType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.ItemCost;
@@ -37,16 +37,16 @@ import java.util.List;
  */
 public class LegacyBucketingGameTest {
 
-    @GameTest
+    @GameTest(template = "fabric-gametest-api-v1:empty")
     public void bucketsLegacyOffersPerLevel(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         var registries = level.registryAccess();
 
         Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
-                .withType(registries, VillagerType.PLAINS)
-                .withProfession(registries, VillagerProfession.FARMER)
-                .withLevel(5));
+                .setType(VillagerType.PLAINS)
+                .setProfession(VillagerProfession.FARMER)
+                .setLevel(5));
 
         // Each case: a flat list of `size` offers imported as if owned by a farmer at
         // `merchantLevel`. expectedByLevel is indexed by level (slot 0 unused). Levels below the

@@ -1,7 +1,7 @@
 package com.tom.tradeoptimizer.api;
 
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.npc.Villager;
 
 /**
  * Lets an add-on take over a villager right-click before Trade Picker runs its own picker flow.

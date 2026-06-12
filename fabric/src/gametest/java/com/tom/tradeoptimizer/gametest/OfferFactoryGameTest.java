@@ -2,16 +2,14 @@ package com.tom.tradeoptimizer.gametest;
 
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
-import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.entity.npc.villager.VillagerProfession;
-import net.minecraft.world.entity.npc.villager.VillagerType;
-import net.minecraft.world.item.trading.TradeSet;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.npc.VillagerType;
 
 import java.util.List;
 
@@ -39,21 +37,18 @@ public class OfferFactoryGameTest {
      * trades are flat — no enchantment or biome gating — so this reliably exercises the
      * trade-set -> picker-card pipeline against real Minecraft data.
      */
-    @GameTest
+    @GameTest(template = "fabric-gametest-api-v1:empty")
     public void farmerLevelOneEnumeratesTrades(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         var registries = level.registryAccess();
 
         Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
-                .withType(registries, VillagerType.PLAINS)
-                .withProfession(registries, VillagerProfession.FARMER)
-                .withLevel(1));
+                .setType(VillagerType.PLAINS)
+                .setProfession(VillagerProfession.FARMER)
+                .setLevel(1));
 
-        ResourceKey<TradeSet> tradeSetKey = villager.getVillagerData().profession().value().getTrades(1);
-        helper.assertTrue(tradeSetKey != null, "farmer level 1 should have a trade set");
-
-        List<AvailableTrade> trades = OfferFactory.enumerate(level, villager, tradeSetKey);
+        List<AvailableTrade> trades = OfferFactory.enumerate(level, villager, 1);
         helper.assertTrue(!trades.isEmpty(), "farmer level 1 enumeration returned no trades");
         for (AvailableTrade t : trades) {
             helper.assertTrue(!t.previewOffer().getResult().isEmpty(),

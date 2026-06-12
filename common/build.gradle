@@ -29,12 +29,12 @@ sourceSets {
 // Java 25 — both MC 26.1.2 loaders are Java 25 platforms (NeoForge 26.1.2's own runtime
 // stack, FancyModLoader/NeoForm, ships Java 25 bytecode), so the whole project is uniform 25.
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 25
+	it.options.release = 21
 }
 
 java {
-	sourceCompatibility = JavaVersion.VERSION_25
-	targetCompatibility = JavaVersion.VERSION_25
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
 
 	toolchain {
 		languageVersion = JavaLanguageVersion.of(25)

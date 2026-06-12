@@ -13,16 +13,17 @@ import net.minecraft.server.level.ServerPlayer;
 public final class FabricNetwork implements INetwork {
 
     /**
-     * Register the custom-payload types. OpenPickerS2C uses registerLarge with a 2 MiB cap because
-     * a librarian's full enchant×level option list blows the default 32 KB limit; the tiny C2S
-     * packets use the standard register. Called once from the mod entry point.
+     * Register the custom-payload types. On 1.21.1 the vanilla clientbound custom-payload cap is
+     * 1 MiB, which comfortably fits the librarian's full enchant×level option list (~30 KB) — so
+     * the 26.x registerLarge carve-out isn't needed here, and 1.21.1's Fabric API names the
+     * registries playS2C/playC2S. Called once from the mod entry point.
      */
     public static void registerPayloadTypes() {
-        PayloadTypeRegistry.clientboundPlay().registerLarge(
-                NetworkPayloads.OPEN_PICKER_TYPE, OpenPickerS2C.STREAM_CODEC, 2 * 1024 * 1024);
-        PayloadTypeRegistry.serverboundPlay().register(
+        PayloadTypeRegistry.playS2C().register(
+                NetworkPayloads.OPEN_PICKER_TYPE, OpenPickerS2C.STREAM_CODEC);
+        PayloadTypeRegistry.playC2S().register(
                 NetworkPayloads.PICKER_SUBMIT_TYPE, PickerSubmitC2S.STREAM_CODEC);
-        PayloadTypeRegistry.serverboundPlay().register(
+        PayloadTypeRegistry.playC2S().register(
                 NetworkPayloads.RESET_VILLAGER_TYPE, ResetVillagerC2S.STREAM_CODEC);
     }
 

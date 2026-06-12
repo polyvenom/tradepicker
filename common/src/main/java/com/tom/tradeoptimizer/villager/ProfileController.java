@@ -9,25 +9,19 @@ import com.tom.tradeoptimizer.platform.Services;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
-import net.minecraft.core.Holder;
-import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.entity.npc.villager.VillagerData;
-import net.minecraft.world.entity.npc.villager.VillagerProfession;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerData;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.npc.VillagerTrades;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
-import net.minecraft.world.item.trading.TradeSet;
 
-import net.minecraft.resources.Identifier;
-import net.minecraft.server.permissions.Permission;
-import net.minecraft.server.permissions.PermissionLevel;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -53,16 +47,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ProfileController {
     private ProfileController() {}
 
-    /**
-     * Op-equivalent permission probe — GAMEMASTERS is MC 26.1.2's named replacement for
-     * the old integer permission level 2 (the threshold for /op'd command access).
-     * Cached because it's allocation-free to reuse but slightly verbose to construct.
-     */
-    private static final Permission OP_PERMISSION =
-            new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS);
-
     private static boolean isOp(ServerPlayer player) {
-        return player.permissions().hasPermission(OP_PERMISSION);
+        // Integer permission level 2 = the /op command threshold (1.21.1's permission API;
+        // the named PermissionLevel constants only exist on the 26.x line).
+        return player.hasPermissions(2);
     }
 
     /**
@@ -83,14 +71,14 @@ public final class ProfileController {
      * returns SUCCESS.
      */
     public static boolean onInteract(ServerPlayer player, Villager villager) {
-        ServerLevel level = player.level();
+        ServerLevel level = player.serverLevel();
         VillagerData data = villager.getVillagerData();
-        int merchantLevel = data.level();
-        Holder<VillagerProfession> profHolder = data.profession();
-        String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(profHolder.value()).toString();
+        int merchantLevel = data.getLevel();
+        VillagerProfession prof = data.getProfession();
+        String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(prof).toString();
 
         // Nitwits and unemployed villagers can't trade — bail.
-        if (profHolder.is(VillagerProfession.NITWIT) || profHolder.is(VillagerProfession.NONE)) {
+        if (prof == VillagerProfession.NITWIT || prof == VillagerProfession.NONE) {
             return true;
         }
 
@@ -159,7 +147,7 @@ public final class ProfileController {
                 // Wipe the vanilla-rolled offers before the picker opens, otherwise the
                 // player would see them flash for a tick. They'll be replaced by the
                 // player's picks once they hit Confirm.
-                villager.setOffers(new MerchantOffers());
+                Services.PLATFORM.setVillagerOffers(villager, new MerchantOffers());
                 TradeOptimizer.LOGGER.info("Truly fresh villager {} — discarding vanilla starter rolls, opening picker (owner={})",
                         villager.getUUID(), player.getName().getString());
             }
@@ -209,7 +197,7 @@ public final class ProfileController {
     }
 
     public static void onPickerSubmit(ServerPlayer player, UUID villagerId, int level, List<TradeKey> picks) {
-        ServerLevel sl = player.level();
+        ServerLevel sl = player.serverLevel();
         TradeOptimizer.LOGGER.debug("[submit] villager={} level={} picks={}",
                 villagerId, level, picks);
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) {
@@ -217,7 +205,7 @@ public final class ProfileController {
             player.sendSystemMessage(Component.literal("Villager not found."));
             return;
         }
-        VillagerProfession prof = villager.getVillagerData().profession().value();
+        VillagerProfession prof = villager.getVillagerData().getProfession();
         String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(prof).toString();
 
         // The picks list arrives from the client and CANNOT be trusted. Without these
@@ -228,7 +216,7 @@ public final class ProfileController {
         // 1) The level must be one this villager has actually reached. The picker only
         //    ever opens for the villager's current level, so a submit for a higher level
         //    is a tampered packet.
-        int currentLevel = villager.getVillagerData().level();
+        int currentLevel = villager.getVillagerData().getLevel();
         if (level < 1 || level > currentLevel) {
             TradeOptimizer.LOGGER.warn("[submit] rejected out-of-range level {} for villager {} (at level {})",
                     level, villagerId, currentLevel);
@@ -237,19 +225,14 @@ public final class ProfileController {
 
         // 2) Every pick must be a real option in this (profession, level) trade pool.
         //    Re-enumerate the pool server-side and drop anything that isn't in it.
-        ResourceKey<TradeSet> tradeSetKey = prof.getTrades(level);
-        if (tradeSetKey == null) {
-            TradeOptimizer.LOGGER.warn("[submit] no trade set for {} level {}", profName, level);
-            return;
-        }
         List<AvailableTrade> available;
         try {
-            available = OfferFactory.enumerate(sl, villager, tradeSetKey);
+            available = OfferFactory.enumerate(sl, villager, level);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("[submit] enumeration failed for {} level {}", profName, level, e);
             return;
         }
-        Set<Identifier> validIds = new HashSet<>();
+        Set<ResourceLocation> validIds = new HashSet<>();
         for (AvailableTrade t : available) validIds.add(t.key().id());
 
         List<TradeKey> validatedPicks = new ArrayList<>(picks.size());
@@ -268,7 +251,7 @@ public final class ProfileController {
         //    selections, but a tampered client could submit more — reject here. Uses the same
         //    bookPickCap as sendPicker (incl. the no-softlock relaxation), so a legitimate
         //    submission is never rejected. No-op when the toggle is off (cap == picksRequired).
-        int bookCap = bookPickCap(sl, villager, tradeSetKey, available, MAX_TRADES_PER_LEVEL);
+        int bookCap = bookPickCap(sl, villager, level, available, MAX_TRADES_PER_LEVEL);
         int bookPicks = 0;
         for (TradeKey k : validatedPicks) {
             if (OfferFactory.isBookKey(k)) bookPicks++;
@@ -317,7 +300,7 @@ public final class ProfileController {
     }
 
     public static void onReset(ServerPlayer player, UUID villagerId) {
-        ServerLevel sl = player.level();
+        ServerLevel sl = player.serverLevel();
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) return;
 
         // Reset is destructive (wipes XP, level, and locked-in trades). Lock it to the
@@ -357,9 +340,9 @@ public final class ProfileController {
         }
 
         VillagerData current = villager.getVillagerData();
-        villager.setVillagerData(current.withLevel(1));
+        villager.setVillagerData(current.setLevel(1));
         villager.setVillagerXp(0);
-        villager.setOffers(new MerchantOffers());
+        Services.PLATFORM.setVillagerOffers(villager, new MerchantOffers());
 
         // Reset is driven from the merchant screen (Reset button -> confirm dialog), but the client
         // only swaps screens; it never asks the server to close the trade container. So the
@@ -402,8 +385,7 @@ public final class ProfileController {
      */
     static void importExistingOffers(ServerLevel level, Villager villager,
                                              VillagerProfile profile, MerchantOffers existing, int merchantLevel) {
-        HolderLookup.Provider registries = level.registryAccess();
-        VillagerProfession prof = villager.getVillagerData().profession().value();
+        VillagerProfession prof = villager.getVillagerData().getProfession();
 
         int total = existing.size();
         int idx = 0;
@@ -414,7 +396,7 @@ public final class ProfileController {
                 // with more offers than the expected grid never loses any.
                 count = total - idx;
             } else {
-                count = Math.min(perLevelTradeCount(registries, prof, lvl), total - idx);
+                count = Math.min(perLevelTradeCount(level, prof, lvl), total - idx);
             }
             if (count <= 0) continue;
             List<MerchantOffer> bucket = new ArrayList<>(existing.subList(idx, idx + count));
@@ -427,14 +409,10 @@ public final class ProfileController {
     private static final int MAX_TRADES_PER_LEVEL = 2;
 
     /** How many offers a level is expected to contribute: its trade-set size, capped. */
-    private static int perLevelTradeCount(HolderLookup.Provider registries, VillagerProfession prof, int level) {
-        ResourceKey<TradeSet> key = prof.getTrades(level);
-        if (key == null) return MAX_TRADES_PER_LEVEL;
-        Optional<Holder.Reference<TradeSet>> setRef =
-                registries.lookupOrThrow(Registries.TRADE_SET).get(key);
-        if (setRef.isEmpty()) return MAX_TRADES_PER_LEVEL;
-        int entries = setRef.get().value().getTrades().size();
-        return Math.min(MAX_TRADES_PER_LEVEL, entries);
+    private static int perLevelTradeCount(ServerLevel level, VillagerProfession prof, int merchantLevel) {
+        VillagerTrades.ItemListing[] listings = OfferFactory.listingsFor(level, prof, merchantLevel);
+        if (listings == null) return MAX_TRADES_PER_LEVEL;
+        return Math.min(MAX_TRADES_PER_LEVEL, listings.length);
     }
 
     /**
@@ -448,7 +426,7 @@ public final class ProfileController {
      * an all-books pool). The server and the client compute this identically, so a legitimate
      * submission is never rejected.
      */
-    private static int bookPickCap(ServerLevel level, Villager villager, ResourceKey<TradeSet> tradeSetKey,
+    private static int bookPickCap(ServerLevel level, Villager villager, int merchantLevel,
                                    List<AvailableTrade> available, int picksRequired) {
         if (!TradeOptimizerConfig.get().vanillaBookLimits()) return picksRequired;
         int nonBookCards = 0;
@@ -459,23 +437,17 @@ public final class ProfileController {
         // cap, so report the normal pick count. This also stops the picker from showing a redundant
         // "(max 0 book)" hint for villagers that sell no books at all.
         if (nonBookCards == available.size()) return picksRequired;
-        int cap = Math.min(OfferFactory.countBookTemplates(level, villager, tradeSetKey), picksRequired);
+        int cap = Math.min(OfferFactory.countBookTemplates(level, villager, merchantLevel), picksRequired);
         cap = Math.max(cap, picksRequired - nonBookCards); // never make the level impossible to fill
         return Math.min(cap, picksRequired);
     }
 
     private static void sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
-        ServerLevel level = player.level();
-        VillagerProfession prof = villager.getVillagerData().profession().value();
-        ResourceKey<TradeSet> tradeSetKey = prof.getTrades(merchantLevel);
-        if (tradeSetKey == null) {
-            TradeOptimizer.LOGGER.warn("No trade set for {} level {}", profile.profession(), merchantLevel);
-            return;
-        }
+        ServerLevel level = player.serverLevel();
 
         List<AvailableTrade> available;
         try {
-            available = OfferFactory.enumerate(level, villager, tradeSetKey);
+            available = OfferFactory.enumerate(level, villager, merchantLevel);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("Trade enumeration failed for {} level {}",
                     profile.profession(), merchantLevel, e);
@@ -517,7 +489,7 @@ public final class ProfileController {
         TradeOptimizer.LOGGER.info("Picker for {} level {}: {} trade options",
                 profile.profession(), merchantLevel, available.size());
 
-        int maxBookPicks = bookPickCap(level, villager, tradeSetKey, available, MAX_TRADES_PER_LEVEL);
+        int maxBookPicks = bookPickCap(level, villager, merchantLevel, available, MAX_TRADES_PER_LEVEL);
 
         OpenPickerS2C payload = new OpenPickerS2C(
                 villager.getUUID(),
@@ -560,7 +532,7 @@ public final class ProfileController {
      * Reputation modifiers (from curing or hero of the village) are applied if a player is provided.
      */
     private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile, ServerPlayer player) {
-        int currentLevel = villager.getVillagerData().level();
+        int currentLevel = villager.getVillagerData().getLevel();
 
         // Carry-over pool of the previously-live PICK offers, used to preserve use-counts. Legacy
         // offers are filtered out by identity: the profile re-adds those same instances, so reusing
@@ -591,7 +563,7 @@ public final class ProfileController {
             offers.addAll(profile.legacyFor(lvl));
         }
 
-        villager.setOffers(offers);
+        Services.PLATFORM.setVillagerOffers(villager, offers);
         refreshSpecialPrices(villager, player);
     }
 

@@ -5,7 +5,7 @@ import com.tom.tradeoptimizer.client.state.ClientLastVillager;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.npc.Villager;
 
 public final class TradeOptimizerClient implements ClientModInitializer {
 

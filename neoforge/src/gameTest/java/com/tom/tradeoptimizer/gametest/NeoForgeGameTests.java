@@ -18,7 +18,7 @@ import net.minecraft.gametest.framework.TestData;
 import net.minecraft.gametest.framework.TestEnvironmentDefinition;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
@@ -27,9 +27,9 @@ import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.entity.npc.villager.VillagerProfession;
-import net.minecraft.world.entity.npc.villager.VillagerType;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.npc.VillagerType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.ItemCost;
@@ -65,11 +65,11 @@ public final class NeoForgeGameTests {
     private NeoForgeGameTests() {}
 
     private static final String NS = "tradeoptimizer";
-    private static final Identifier ENV_ID = Identifier.fromNamespaceAndPath(NS, "default");
-    private static final Identifier EMPTY_STRUCTURE = Identifier.withDefaultNamespace("empty");
+    private static final ResourceLocation ENV_ID = ResourceLocation.fromNamespaceAndPath(NS, "default");
+    private static final ResourceLocation EMPTY_STRUCTURE = ResourceLocation.withDefaultNamespace("empty");
 
     private static ResourceKey<Consumer<GameTestHelper>> fnKey(String name) {
-        return ResourceKey.create(Registries.TEST_FUNCTION, Identifier.fromNamespaceAndPath(NS, name));
+        return ResourceKey.create(Registries.TEST_FUNCTION, ResourceLocation.fromNamespaceAndPath(NS, name));
     }
 
     @SubscribeEvent
@@ -99,7 +99,7 @@ public final class NeoForgeGameTests {
                 "owner_pick_reset", "non_owner_rejected", "op_bypasses", "reset_closes_session",
                 "book_limit_nonbook",
                 "codec_roundtrip", "price_seed", "legacy_bucketing", "book_key_format")) {
-            event.registerTest(Identifier.fromNamespaceAndPath(NS, name),
+            event.registerTest(ResourceLocation.fromNamespaceAndPath(NS, name),
                     new FunctionGameTestInstance(fnKey(name),
                             new TestData<>(env, EMPTY_STRUCTURE, 200, 0, true)));
         }
@@ -114,7 +114,7 @@ public final class NeoForgeGameTests {
         villager.setVillagerData(villager.getVillagerData()
                 .withType(registries, VillagerType.PLAINS)
                 .withProfession(registries, VillagerProfession.FARMER)
-                .withLevel(villagerLevel));
+                .setLevel(villagerLevel));
         return villager;
     }
 
@@ -169,7 +169,7 @@ public final class NeoForgeGameTests {
         helper.assertTrue(level1Offer.getUses() == 3,
                 "sanity: level-1 trade should read 3 uses (got " + level1Offer.getUses() + ")");
 
-        villager.setVillagerData(villager.getVillagerData().withLevel(2));
+        villager.setVillagerData(villager.getVillagerData().setLevel(2));
         ProfileController.onPickerSubmit(player, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
 
         MerchantOffers after = villager.getOffers();
@@ -196,7 +196,7 @@ public final class NeoForgeGameTests {
         helper.assertTrue(l1.getUses() == maxUses && l1.isOutOfStock(),
                 "precondition: the level-1 trade should be maxed out / out of stock");
 
-        villager.setVillagerData(villager.getVillagerData().withLevel(2));
+        villager.setVillagerData(villager.getVillagerData().setLevel(2));
         ProfileController.onPickerSubmit(player, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         helper.assertTrue(villager.getOffers().get(0).getUses() == maxUses,
                 "carry-over should preserve the maxed use-count across the level-2 pick");
@@ -223,12 +223,12 @@ public final class NeoForgeGameTests {
                 "owner submit should claim ownership for the submitting player");
         helper.assertTrue(p.picksFor(1).size() == 2, "owner's level-1 picks should be stored");
 
-        villager.setVillagerData(villager.getVillagerData().withLevel(2));
+        villager.setVillagerData(villager.getVillagerData().setLevel(2));
         ProfileController.onPickerSubmit(owner, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         helper.assertTrue(state.get(villagerId).picksFor(2).size() == 2, "owner's level-2 picks should be stored");
 
         ProfileController.onReset(owner, villagerId);
-        helper.assertTrue(villager.getVillagerData().level() == 1, "reset should drop the villager to level 1");
+        helper.assertTrue(villager.getVillagerData().getLevel() == 1, "reset should drop the villager to level 1");
         helper.assertTrue(villager.getVillagerXp() == 0, "reset should zero the villager XP");
         helper.assertTrue(villager.getOffers().isEmpty(), "reset should clear the live offers");
         VillagerProfile after = state.get(villagerId);
@@ -248,7 +248,7 @@ public final class NeoForgeGameTests {
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         helper.assertTrue(state.get(villagerId).picksFor(1).size() == 2, "precondition: owner's level-1 picks stored");
 
-        villager.setVillagerData(villager.getVillagerData().withLevel(2));
+        villager.setVillagerData(villager.getVillagerData().setLevel(2));
 
         ServerPlayer intruder = helper.makeMockServerPlayerInLevel();
         ProfileController.onPickerSubmit(intruder, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
@@ -259,7 +259,7 @@ public final class NeoForgeGameTests {
         helper.assertTrue(p.picksFor(1).size() == 2, "owner's existing picks must remain intact");
 
         ProfileController.onReset(intruder, villagerId);
-        helper.assertTrue(villager.getVillagerData().level() == 2, "non-owner reset must NOT drop the villager level");
+        helper.assertTrue(villager.getVillagerData().getLevel() == 2, "non-owner reset must NOT drop the villager level");
         VillagerProfile after = state.get(villagerId);
         helper.assertTrue(after.owner().isPresent() && after.owner().get().equals(owner.getUUID())
                         && after.picksFor(1).size() == 2, "non-owner reset must leave the profile intact");
@@ -275,7 +275,7 @@ public final class NeoForgeGameTests {
         ServerPlayer owner = helper.makeMockServerPlayerInLevel();
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
 
-        villager.setVillagerData(villager.getVillagerData().withLevel(2));
+        villager.setVillagerData(villager.getVillagerData().setLevel(2));
 
         ServerPlayer op = helper.makeMockServerPlayerInLevel();
         level.getServer().getPlayerList().op(op.nameAndId(),
@@ -291,7 +291,7 @@ public final class NeoForgeGameTests {
                 "op submit should not steal ownership from the original owner");
 
         ProfileController.onReset(op, villagerId);
-        helper.assertTrue(villager.getVillagerData().level() == 1, "op reset should drop the villager to level 1");
+        helper.assertTrue(villager.getVillagerData().getLevel() == 1, "op reset should drop the villager to level 1");
         VillagerProfile after = state.get(villagerId);
         helper.assertTrue(after.picksFor(1).isEmpty() && after.picksFor(2).isEmpty(), "op reset should wipe picks");
         helper.assertTrue(after.owner().isPresent() && after.owner().get().equals(owner.getUUID()),
@@ -354,10 +354,10 @@ public final class NeoForgeGameTests {
         UUID owner = UUID.randomUUID();
         Map<Integer, List<TradeKey>> picks = new HashMap<>();
         picks.put(1, List.of(
-                new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_wheat_for_emerald")),
-                new TradeKey(Identifier.fromNamespaceAndPath("tradeoptimizer", "book/minecraft/sharpness"))));
+                new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_wheat_for_emerald")),
+                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "book/minecraft/sharpness"))));
         picks.put(2, List.of(
-                new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_pumpkin_for_emerald"))));
+                new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_pumpkin_for_emerald"))));
 
         MerchantOffer offerA = new MerchantOffer(new ItemCost(Items.WHEAT, 20), new ItemStack(Items.EMERALD, 1), 16, 2, 0.05f);
         MerchantOffer offerB = new MerchantOffer(new ItemCost(Items.EMERALD, 3), new ItemStack(Items.BREAD, 6), 12, 1, 0.05f);
@@ -370,7 +370,7 @@ public final class NeoForgeGameTests {
         assertRoundTrips(helper, ops, full, "full profile");
 
         Map<Integer, List<TradeKey>> picksOnly = new HashMap<>();
-        picksOnly.put(1, List.of(new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_potato_for_emerald"))));
+        picksOnly.put(1, List.of(new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_potato_for_emerald"))));
         VillagerProfile ownerless = new VillagerProfile(
                 UUID.randomUUID(), "minecraft:farmer", Optional.empty(), picksOnly, new HashMap<>());
         assertRoundTrips(helper, ops, ownerless, "ownerless profile");

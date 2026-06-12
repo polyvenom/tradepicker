@@ -20,17 +20,17 @@ config = "tradeoptimizer.mixins.json"
 [[mixins]]
 config = "tradeoptimizer.client.mixins.json"
 
-# Constrained to the 26.1.x lineage; a 26.2 build will ship as a separate release.
+# 1.21.1 backport line: NeoForge 21.1.x LTS on MC 1.21/1.21.1 (the modpack target).
 [[dependencies.tradeoptimizer]]
 modId = "neoforge"
 type = "required"
-versionRange = "[26.1.2,26.2)"
+versionRange = "[21.1,21.2)"
 ordering = "NONE"
 side = "BOTH"
 
 [[dependencies.tradeoptimizer]]
 modId = "minecraft"
 type = "required"
-versionRange = "[26.1.2,26.2)"
+versionRange = "[1.21,1.21.2)"
 ordering = "NONE"
 side = "BOTH"

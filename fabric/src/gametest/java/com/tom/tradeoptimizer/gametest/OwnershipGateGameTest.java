@@ -7,20 +7,15 @@ import com.tom.tradeoptimizer.trade.TradeKey;
 import com.tom.tradeoptimizer.villager.ProfileController;
 import com.tom.tradeoptimizer.villager.VillagerProfile;
 import com.tom.tradeoptimizer.villager.VillagerProfileState;
-import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.permissions.LevelBasedPermissionSet;
-import net.minecraft.server.permissions.Permission;
-import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.entity.npc.villager.VillagerProfession;
-import net.minecraft.world.entity.npc.villager.VillagerType;
-import net.minecraft.world.item.trading.TradeSet;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.npc.VillagerType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,14 +41,14 @@ import java.util.UUID;
 public class OwnershipGateGameTest {
 
     /** The owner can pick at multiple levels and then reset; ownership survives the reset. */
-    @GameTest
+    @GameTest(template = "fabric-gametest-api-v1:empty")
     public void ownerCanPickThenReset(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
 
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
 
         // Owner picks level 1 -> accepted, claims ownership.
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
@@ -65,14 +60,14 @@ public class OwnershipGateGameTest {
                 "owner's level-1 picks should be stored (got " + p.picksFor(1).size() + ")");
 
         // Owner picks level 2 -> accepted.
-        villager.setVillagerData(villager.getVillagerData().withLevel(2));
+        villager.setVillagerData(villager.getVillagerData().setLevel(2));
         ProfileController.onPickerSubmit(owner, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         helper.assertTrue(state.get(villagerId).picksFor(2).size() == 2,
                 "owner's level-2 picks should be stored");
 
         // Owner resets -> accepted: novice again, picks wiped, ownership preserved.
         ProfileController.onReset(owner, villagerId);
-        helper.assertTrue(villager.getVillagerData().level() == 1, "reset should drop the villager to level 1");
+        helper.assertTrue(villager.getVillagerData().getLevel() == 1, "reset should drop the villager to level 1");
         helper.assertTrue(villager.getVillagerXp() == 0, "reset should zero the villager XP");
         helper.assertTrue(villager.getOffers().isEmpty(), "reset should clear the live offers");
         VillagerProfile after = state.get(villagerId);
@@ -84,22 +79,22 @@ public class OwnershipGateGameTest {
     }
 
     /** A non-owner, non-op player is refused both picking and resetting; the profile is untouched. */
-    @GameTest
+    @GameTest(template = "fabric-gametest-api-v1:empty")
     public void nonOwnerIsRejected(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
 
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         helper.assertTrue(state.get(villagerId).picksFor(1).size() == 2,
                 "precondition: owner's level-1 picks stored");
 
-        villager.setVillagerData(villager.getVillagerData().withLevel(2));
+        villager.setVillagerData(villager.getVillagerData().setLevel(2));
 
         // A different player (not owner, not op) tries to pick level 2 -> rejected.
-        ServerPlayer intruder = helper.makeMockServerPlayerInLevel();
+        ServerPlayer intruder = MockPlayers.mock(helper);
         ProfileController.onPickerSubmit(intruder, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         VillagerProfile p = state.get(villagerId);
         helper.assertTrue(p.picksFor(2).isEmpty(), "non-owner submit must NOT store level-2 picks");
@@ -109,7 +104,7 @@ public class OwnershipGateGameTest {
 
         // The same non-owner tries to reset -> rejected, villager + profile unchanged.
         ProfileController.onReset(intruder, villagerId);
-        helper.assertTrue(villager.getVillagerData().level() == 2,
+        helper.assertTrue(villager.getVillagerData().getLevel() == 2,
                 "non-owner reset must NOT drop the villager level");
         VillagerProfile after = state.get(villagerId);
         helper.assertTrue(after.owner().isPresent() && after.owner().get().equals(owner.getUUID())
@@ -119,28 +114,25 @@ public class OwnershipGateGameTest {
     }
 
     /** A server op who is not the owner can both pick and reset; the original owner is preserved. */
-    @GameTest
+    @GameTest(template = "fabric-gametest-api-v1:empty")
     public void opBypassesGates(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
 
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
 
-        villager.setVillagerData(villager.getVillagerData().withLevel(2));
+        villager.setVillagerData(villager.getVillagerData().setLevel(2));
 
-        // An op who is NOT the owner. Grant an explicit OWNER-level (4) permission set rather than
-        // the server default — the gametest server's operatorUserPermissions() sits below
-        // GAMEMASTERS, so a bare op() wouldn't clear the command-level check. permissions() reads
-        // the op list live, so this takes effect immediately.
-        ServerPlayer op = helper.makeMockServerPlayerInLevel();
-        level.getServer().getPlayerList().op(op.nameAndId(),
-                Optional.of(LevelBasedPermissionSet.OWNER), Optional.empty());
-        helper.assertTrue(
-                op.permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS)),
-                "sanity: op() should grant the mock player GAMEMASTERS-level permission");
+        // An op who is NOT the owner. Write a level-4 entry into the ops list directly — the
+        // gametest server's default operator permission level isn't reliably >= 2, so a bare
+        // PlayerList.op() wouldn't deterministically clear the hasPermissions(2) check.
+        ServerPlayer op = MockPlayers.mock(helper);
+        MockPlayers.op(op);
+        helper.assertTrue(op.hasPermissions(2),
+                "sanity: the ops-list entry should grant the mock player permission level 2+");
 
         // Op picks level 2 despite not owning -> accepted (ownership bypassed), owner unchanged.
         ProfileController.onPickerSubmit(op, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
@@ -152,7 +144,7 @@ public class OwnershipGateGameTest {
 
         // Op resets despite not owning -> accepted; original owner preserved across the reset.
         ProfileController.onReset(op, villagerId);
-        helper.assertTrue(villager.getVillagerData().level() == 1, "op reset should drop the villager to level 1");
+        helper.assertTrue(villager.getVillagerData().getLevel() == 1, "op reset should drop the villager to level 1");
         VillagerProfile after = state.get(villagerId);
         helper.assertTrue(after.picksFor(1).isEmpty() && after.picksFor(2).isEmpty(),
                 "op reset should wipe picks");
@@ -167,12 +159,12 @@ public class OwnershipGateGameTest {
      * the lingering menu mid-open, which nulls the freshly-set tradingPlayer, so the new menu fails
      * MerchantMenu.stillValid() on the next tick — the "first reopen after reset flashes" bug.
      */
-    @GameTest
+    @GameTest(template = "fabric-gametest-api-v1:empty")
     public void resetClosesStaleTradeSession(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
 
         // Submitting picks applies offers and opens the merchant (setTradingPlayer + openTradingScreen),
         // so afterward the player has a live trade session — exactly the state a reset fires from.
@@ -197,20 +189,19 @@ public class OwnershipGateGameTest {
      * Trade Rebalance datapack returns null book previews, so 0 books enumerate — and is validated
      * in the live game instead.
      */
-    @GameTest
+    @GameTest(template = "fabric-gametest-api-v1:empty")
     public void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
 
         TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
         boolean original = cfg.vanillaBookLimits();
         cfg.setVanillaBookLimits(true);
         try {
-            ResourceKey<TradeSet> key = villager.getVillagerData().profession().value().getTrades(1);
-            helper.assertTrue(OfferFactory.countBookTemplates(level, villager, key) == 0,
+            helper.assertTrue(OfferFactory.countBookTemplates(level, villager, 1) == 0,
                     "farmer level 1 should have no book templates");
             ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
             VillagerProfile p = state.get(villagerId);
@@ -230,18 +221,15 @@ public class OwnershipGateGameTest {
         var registries = level.registryAccess();
         Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
-                .withType(registries, VillagerType.PLAINS)
-                .withProfession(registries, VillagerProfession.FARMER)
-                .withLevel(villagerLevel));
+                .setType(VillagerType.PLAINS)
+                .setProfession(VillagerProfession.FARMER)
+                .setLevel(villagerLevel));
         return villager;
     }
 
     private static List<TradeKey> firstTwoPicks(ServerLevel level, Villager villager,
                                                 int merchantLevel, GameTestHelper helper) {
-        ResourceKey<TradeSet> tradeSetKey =
-                villager.getVillagerData().profession().value().getTrades(merchantLevel);
-        helper.assertTrue(tradeSetKey != null, "farmer level " + merchantLevel + " should have a trade set");
-        List<AvailableTrade> available = OfferFactory.enumerate(level, villager, tradeSetKey);
+        List<AvailableTrade> available = OfferFactory.enumerate(level, villager, merchantLevel);
         helper.assertTrue(available.size() >= 2,
                 "farmer level " + merchantLevel + " needs >=2 trade options (got " + available.size() + ")");
         List<TradeKey> picks = new ArrayList<>();

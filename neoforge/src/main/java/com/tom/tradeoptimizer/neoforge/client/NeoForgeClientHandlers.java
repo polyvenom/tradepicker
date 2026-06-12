@@ -4,7 +4,7 @@ import com.tom.tradeoptimizer.client.state.ClientLastVillager;
 import com.tom.tradeoptimizer.client.ui.TradePickerScreen;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import net.minecraft.client.Minecraft;
-import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.npc.Villager;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 

@@ -61,12 +61,12 @@ sourceSets.gameTest.runtimeClasspath += sourceSets.main.runtimeClasspath + sourc
 // Java 25 — NeoForge 26.1.2's runtime stack (FancyModLoader/NeoForm) is Java 25 bytecode,
 // so the NeoForge artifact must target 25 to resolve those variants. Matches Fabric + Common.
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 25
+	it.options.release = 21
 }
 
 java {
-	sourceCompatibility = JavaVersion.VERSION_25
-	targetCompatibility = JavaVersion.VERSION_25
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
 
 	toolchain {
 		languageVersion = JavaLanguageVersion.of(25)

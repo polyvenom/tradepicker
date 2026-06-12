@@ -4,9 +4,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.entity.npc.villager.VillagerProfession;
-import net.minecraft.world.entity.npc.villager.VillagerType;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.npc.VillagerType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.ItemCost;
@@ -32,7 +32,7 @@ public final class NeoForgeLegacyBucketingTest {
         villager.setVillagerData(villager.getVillagerData()
                 .withType(registries, VillagerType.PLAINS)
                 .withProfession(registries, VillagerProfession.FARMER)
-                .withLevel(5));
+                .setLevel(5));
 
         checkCase(helper, level, villager, 1, 1, new int[]{0, 1});
         checkCase(helper, level, villager, 2, 1, new int[]{0, 2});

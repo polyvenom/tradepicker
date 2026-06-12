@@ -1,7 +1,8 @@
 package com.tom.tradeoptimizer.platform;
 
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.item.trading.MerchantOffers;
 
 import java.nio.file.Path;
 
@@ -25,4 +26,12 @@ public interface IPlatformHelper {
      * no mixin dependency.
      */
     void updateVillagerSpecialPrices(Villager villager, ServerPlayer player);
+
+    /**
+     * Replace the villager's live offer list. 1.21.1 has NO public setter: the vanilla
+     * {@code AbstractVillager.overrideOffers} is an empty no-op stub there (verified from the
+     * mapped bytecode — silently does nothing), so each loader writes the protected
+     * {@code offers} field directly via an @Accessor mixin.
+     */
+    void setVillagerOffers(Villager villager, MerchantOffers offers);
 }

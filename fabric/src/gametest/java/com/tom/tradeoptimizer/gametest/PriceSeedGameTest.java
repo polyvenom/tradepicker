@@ -4,17 +4,15 @@ import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
-import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.entity.npc.villager.VillagerProfession;
-import net.minecraft.world.entity.npc.villager.VillagerType;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.npc.VillagerType;
 import net.minecraft.world.item.trading.MerchantOffer;
-import net.minecraft.world.item.trading.TradeSet;
 
 import java.util.List;
 import java.util.Optional;
@@ -37,27 +35,23 @@ import java.util.Optional;
  */
 public class PriceSeedGameTest {
 
-    @GameTest
+    @GameTest(template = "fabric-gametest-api-v1:empty")
     public void seededPriceIsStableAndMatchesPreview(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         var registries = level.registryAccess();
 
         Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
-                .withType(registries, VillagerType.PLAINS)
-                .withProfession(registries, VillagerProfession.FARMER)
-                .withLevel(1));
-
-        ResourceKey<TradeSet> tradeSetKey =
-                villager.getVillagerData().profession().value().getTrades(1);
-        helper.assertTrue(tradeSetKey != null, "farmer level 1 should have a trade set");
+                .setType(VillagerType.PLAINS)
+                .setProfession(VillagerProfession.FARMER)
+                .setLevel(1));
 
         TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
         boolean originalMode = cfg.vanillaPricing();
         cfg.setVanillaPricing(true); // force the seeded price path (default is min-price)
         try {
             // The picker's preview enumeration.
-            List<AvailableTrade> first = OfferFactory.enumerate(level, villager, tradeSetKey);
+            List<AvailableTrade> first = OfferFactory.enumerate(level, villager, 1);
             helper.assertTrue(!first.isEmpty(), "farmer level 1 should enumerate at least one trade");
 
             for (AvailableTrade t : first) {
@@ -80,7 +74,7 @@ public class PriceSeedGameTest {
 
             // A re-enumeration simulates the player reopening the picker: every preview price must
             // be byte-for-byte identical to the first time.
-            List<AvailableTrade> second = OfferFactory.enumerate(level, villager, tradeSetKey);
+            List<AvailableTrade> second = OfferFactory.enumerate(level, villager, 1);
             helper.assertTrue(second.size() == first.size(),
                     "re-enumeration changed the trade count (" + first.size() + " -> " + second.size() + ")");
             for (int i = 0; i < first.size(); i++) {

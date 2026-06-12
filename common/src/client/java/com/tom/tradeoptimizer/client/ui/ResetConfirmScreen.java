@@ -2,7 +2,7 @@ package com.tom.tradeoptimizer.client.ui;
 
 import com.tom.tradeoptimizer.client.platform.ClientServices;
 import com.tom.tradeoptimizer.network.ResetVillagerC2S;
-import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -42,14 +42,14 @@ public final class ResetConfirmScreen extends Screen {
     }
 
     @Override
-    public void extractRenderState(GuiGraphicsExtractor g, int mouseX, int mouseY, float partial) {
-        super.extractRenderState(g, mouseX, mouseY, partial);
+    public void render(GuiGraphics g, int mouseX, int mouseY, float partial) {
+        super.render(g, mouseX, mouseY, partial);
         String l1 = "This villager will lose all locked-in trades";
         String l2 = "and drop back to Novice (zero XP).";
         String l3 = "Any future levels also need to be re-picked.";
-        g.text(this.font, l1, this.width / 2 - this.font.width(l1) / 2, this.height / 2 - 30, 0xFFFFFFFF);
-        g.text(this.font, l2, this.width / 2 - this.font.width(l2) / 2, this.height / 2 - 18, 0xFFFFFFFF);
-        g.text(this.font, l3, this.width / 2 - this.font.width(l3) / 2, this.height / 2 - 6, 0xFFAAAAAA);
+        g.drawString(this.font, l1, this.width / 2 - this.font.width(l1) / 2, this.height / 2 - 30, 0xFFFFFFFF);
+        g.drawString(this.font, l2, this.width / 2 - this.font.width(l2) / 2, this.height / 2 - 18, 0xFFFFFFFF);
+        g.drawString(this.font, l3, this.width / 2 - this.font.width(l3) / 2, this.height / 2 - 6, 0xFFAAAAAA);
     }
 
     @Override

@@ -1,5 +1,5 @@
 plugins {
-	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+	id 'fabric-loom' version "${loom_version}"
 	id 'maven-publish'
 }
 
@@ -70,27 +70,33 @@ sourceSets.client.java.srcDir project(':common').file('src/client/java')
 sourceSets.gametest.compileClasspath += sourceSets.main.compileClasspath + sourceSets.main.output
 sourceSets.gametest.runtimeClasspath += sourceSets.main.runtimeClasspath + sourceSets.main.output
 
+// 1.21.1 is an obfuscated target (unlike the 26.x Mojmap-native line), so mod deps for the
+// gametest source set need their own remap-aware configurations (modGametestImplementation).
+// MUST come after loom knows the minecraft version is an obfuscated one — calling it inside
+// the loom{} block (before the minecraft dependency exists) trips Loom's "non-obfuscated
+// environment" guard.
+loom.createRemapConfigurations(sourceSets.gametest)
+
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
-	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
-	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	// 1.21.1 is obfuscated — mappings + remapping return (the 26.x line was Mojmap-native
+	// and rejected this line; on this branch it is REQUIRED).
+	mappings loom.officialMojangMappings()
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
 	// Soft optional — present at compile-time so TradePickerMenuApi resolves; absent
 	// at runtime unless the user installs ModMenu.
-	clientCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+	modCompileOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
 
-	// Unit-test harness. fabric-loader-junit boots a headless Fabric/Minecraft
-	// environment inside JUnit so tests can touch net.minecraft.* classes
-	// (Identifier, registries, codecs) without launching the game. It transitively
-	// pulls JUnit 5; the explicit jupiter dep just pins assertions/params API.
+	// Unit-test harness (skipped in CI builds with -x test).
 	testImplementation "net.fabricmc:fabric-loader-junit:${project.loader_version}"
 	testImplementation platform("org.junit:junit-bom:${project.junit_version}")
 	testImplementation "org.junit.jupiter:junit-jupiter"
 
-	// Game-test framework, scoped to the gametest source set only (matches this
-	// project's convention of plain `implementation` for Fabric mod deps — see
-	// fabric-api above). Not on main/client, so it never reaches the release jar.
-	gametestImplementation "net.fabricmc.fabric-api:fabric-gametest-api-v1:${project.gametest_api_version}"
+	// Game-test framework, scoped to the gametest source set via the remap-aware
+	// configuration from createRemapConfigurations. Never reaches the release jar.
+	modGametestImplementation "net.fabricmc.fabric-api:fabric-gametest-api-v1:${project.gametest_api_version}"
 }
 
 test {
@@ -112,13 +118,13 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 25
+	it.options.release = 21
 }
 
 java {
 	withSourcesJar()
-	sourceCompatibility = JavaVersion.VERSION_25
-	targetCompatibility = JavaVersion.VERSION_25
+	sourceCompatibility = JavaVersion.VERSION_21
+	targetCompatibility = JavaVersion.VERSION_21
 
 	toolchain {
 		languageVersion = JavaLanguageVersion.of(25)

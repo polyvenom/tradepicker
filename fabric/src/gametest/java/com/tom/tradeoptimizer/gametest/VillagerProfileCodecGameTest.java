@@ -2,11 +2,11 @@ package com.tom.tradeoptimizer.gametest;
 
 import com.tom.tradeoptimizer.trade.TradeKey;
 import com.tom.tradeoptimizer.villager.VillagerProfile;
-import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
-import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.RegistryOps;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
@@ -31,7 +31,7 @@ import java.util.UUID;
  */
 public class VillagerProfileCodecGameTest {
 
-    @GameTest
+    @GameTest(template = "fabric-gametest-api-v1:empty")
     public void roundTripsThroughCodec(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         RegistryOps<Tag> ops = level.registryAccess().createSerializationContext(NbtOps.INSTANCE);
@@ -44,15 +44,15 @@ public class VillagerProfileCodecGameTest {
         // NOTE: the synthetic book key uses the legacy lowercase form (no "/L<n>" suffix). The
         // headless gametest server validates Identifiers more strictly than the live game and
         // rejects the uppercase 'L' that real per-level book keys carry (audit #5: that key works
-        // in the running game, it's only headless MC that's strict). The codec stores Identifier
+        // in the running game, it's only headless MC that's strict). The codec stores ResourceLocation
         // strings verbatim, so case doesn't change what this exercises — round-tripping a book-style
         // pick. Don't reintroduce an uppercase-L key here; it can't be constructed in a gametest.
         Map<Integer, List<TradeKey>> picks = new HashMap<>();
         picks.put(1, List.of(
-                new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_wheat_for_emerald")),
-                new TradeKey(Identifier.fromNamespaceAndPath("tradeoptimizer", "book/minecraft/sharpness"))));
+                new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_wheat_for_emerald")),
+                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "book/minecraft/sharpness"))));
         picks.put(2, List.of(
-                new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_pumpkin_for_emerald"))));
+                new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_pumpkin_for_emerald"))));
 
         MerchantOffer offerA = new MerchantOffer(new ItemCost(Items.WHEAT, 20), new ItemStack(Items.EMERALD, 1), 16, 2, 0.05f);
         MerchantOffer offerB = new MerchantOffer(new ItemCost(Items.EMERALD, 3), new ItemStack(Items.BREAD, 6), 12, 1, 0.05f);
@@ -67,7 +67,7 @@ public class VillagerProfileCodecGameTest {
         // 2) A grandfathered profile with NO owner and no legacy — exercises the optional/empty
         //    field paths so an ownerless save still decodes to an empty owner (not a crash).
         Map<Integer, List<TradeKey>> picksOnly = new HashMap<>();
-        picksOnly.put(1, List.of(new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_potato_for_emerald"))));
+        picksOnly.put(1, List.of(new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_potato_for_emerald"))));
         VillagerProfile ownerless = new VillagerProfile(
                 UUID.randomUUID(), "minecraft:farmer", Optional.empty(), picksOnly, new HashMap<>());
         assertRoundTrips(helper, ops, ownerless, "ownerless profile");
@@ -87,7 +87,7 @@ public class VillagerProfileCodecGameTest {
         helper.assertTrue(decoded.owner().equals(original.owner()),
                 label + ": owner did not survive round-trip (got " + decoded.owner() + ")");
 
-        // TradeKey is a record over Identifier, so picks compare by value directly.
+        // TradeKey is a record over ResourceLocation, so picks compare by value directly.
         helper.assertTrue(decoded.picks().equals(original.picks()),
                 label + ": picks map did not survive round-trip");
 
