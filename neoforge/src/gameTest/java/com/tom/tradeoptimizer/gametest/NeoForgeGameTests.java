@@ -10,22 +10,14 @@ import com.tom.tradeoptimizer.villager.ProfileController;
 import com.tom.tradeoptimizer.villager.VillagerProfile;
 import com.tom.tradeoptimizer.villager.VillagerProfileState;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Holder;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.gametest.framework.FunctionGameTestInstance;
+import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
-import net.minecraft.gametest.framework.TestData;
-import net.minecraft.gametest.framework.TestEnvironmentDefinition;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.resources.RegistryOps;
-import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.permissions.LevelBasedPermissionSet;
-import net.minecraft.server.permissions.Permission;
-import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
@@ -35,11 +27,11 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.trading.ItemCost;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
-import net.minecraft.world.item.trading.TradeSet;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
-import net.neoforged.neoforge.registries.RegisterEvent;
+import net.neoforged.neoforge.gametest.GameTestHolder;
+import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -47,83 +39,45 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Consumer;
 
 /**
- * NeoForge port of the Fabric game-test safety net. NeoForge 26.1.2 uses the data-driven
- * framework, so each test body is a {@code Consumer<GameTestHelper>} registered into the
- * TEST_FUNCTION registry (RegisterEvent) and wrapped in a FunctionGameTestInstance
- * (RegisterGameTestsEvent) using the built-in empty environment and the {@code minecraft:empty}
- * structure. The bodies are the same vanilla GameTestHelper logic as the Fabric tests.
+ * NeoForge port of the Fabric game-test safety net. NeoForge 21.1 uses the classic annotation
+ * framework (the 26.x data-driven TEST_FUNCTION registry doesn't exist here): vanilla
+ * {@code @GameTest} on public instance methods, namespace from {@code @GameTestHolder}, and
+ * {@code @PrefixGameTestTemplate(false)} so the template resolves as {@code tradeoptimizer:empty}
+ * (an all-void SNBT shipped into the run dir's gameteststructures folder by the build).
  *
- * The two package-private tests (legacy bucketing, book-key format) live in the matching
- * com.tom.tradeoptimizer.villager / .trade packages so they can reach package-private members;
- * they're registered here.
+ * The two package-private tests (legacy bucketing, book-key format) keep their bodies in the
+ * matching com.tom.tradeoptimizer.villager / .trade packages and are delegated to from here.
  */
-@EventBusSubscriber(modid = "tradeoptimizer")
-public final class NeoForgeGameTests {
-    private NeoForgeGameTests() {}
+@GameTestHolder("tradeoptimizer")
+@PrefixGameTestTemplate(false)
+@EventBusSubscriber(modid = "tradeoptimizer", bus = EventBusSubscriber.Bus.MOD)
+public class NeoForgeGameTests {
 
-    private static final String NS = "tradeoptimizer";
-    private static final ResourceLocation ENV_ID = ResourceLocation.fromNamespaceAndPath(NS, "default");
-    private static final ResourceLocation EMPTY_STRUCTURE = ResourceLocation.withDefaultNamespace("empty");
-
-    private static ResourceKey<Consumer<GameTestHelper>> fnKey(String name) {
-        return ResourceKey.create(Registries.TEST_FUNCTION, ResourceLocation.fromNamespaceAndPath(NS, name));
-    }
-
-    @SubscribeEvent
-    static void registerFunctions(RegisterEvent event) {
-        event.register(Registries.TEST_FUNCTION, helper -> {
-            helper.register(fnKey("farmer_enumerates"), (Consumer<GameTestHelper>) NeoForgeGameTests::farmerLevelOneEnumeratesTrades);
-            helper.register(fnKey("restock_levelup"), (Consumer<GameTestHelper>) NeoForgeGameTests::levelUpDoesNotRestockLowerLevelTrades);
-            helper.register(fnKey("restock_normal"), (Consumer<GameTestHelper>) NeoForgeGameTests::normalRestockStillRefillsCarriedOverTrades);
-            helper.register(fnKey("owner_pick_reset"), (Consumer<GameTestHelper>) NeoForgeGameTests::ownerCanPickThenReset);
-            helper.register(fnKey("non_owner_rejected"), (Consumer<GameTestHelper>) NeoForgeGameTests::nonOwnerIsRejected);
-            helper.register(fnKey("op_bypasses"), (Consumer<GameTestHelper>) NeoForgeGameTests::opBypassesGates);
-            helper.register(fnKey("reset_closes_session"), (Consumer<GameTestHelper>) NeoForgeGameTests::resetClosesStaleTradeSession);
-            helper.register(fnKey("book_limit_nonbook"), (Consumer<GameTestHelper>) NeoForgeGameTests::vanillaBookLimitsDoesNotBlockNonBookPicks);
-            helper.register(fnKey("codec_roundtrip"), (Consumer<GameTestHelper>) NeoForgeGameTests::roundTripsThroughCodec);
-            helper.register(fnKey("price_seed"), (Consumer<GameTestHelper>) NeoForgeGameTests::seededPriceIsStableAndMatchesPreview);
-            helper.register(fnKey("legacy_bucketing"), (Consumer<GameTestHelper>) NeoForgeLegacyBucketingTest::bucketsLegacyOffersPerLevel);
-            helper.register(fnKey("book_key_format"), (Consumer<GameTestHelper>) NeoForgeBookKeyTest::bookKeyRoundTripsInNewLowercaseFormat);
-        });
-    }
+    // Bare path only — @GameTestHolder("tradeoptimizer") supplies the namespace, so the resolved
+    // template id is tradeoptimizer:empty (its SNBT lives at gameteststructures/empty.snbt).
+    private static final String EMPTY = "empty";
 
     @SubscribeEvent
     static void registerTests(RegisterGameTestsEvent event) {
-        Holder<TestEnvironmentDefinition<?>> env =
-                event.registerEnvironment(ENV_ID, new TestEnvironmentDefinition.AllOf(List.of()));
-        for (String name : List.of(
-                "farmer_enumerates", "restock_levelup", "restock_normal",
-                "owner_pick_reset", "non_owner_rejected", "op_bypasses", "reset_closes_session",
-                "book_limit_nonbook",
-                "codec_roundtrip", "price_seed", "legacy_bucketing", "book_key_format")) {
-            event.registerTest(ResourceLocation.fromNamespaceAndPath(NS, name),
-                    new FunctionGameTestInstance(fnKey(name),
-                            new TestData<>(env, EMPTY_STRUCTURE, 200, 0, true)));
-        }
+        event.register(NeoForgeGameTests.class);
     }
 
     // ============================ shared helpers ============================
 
     private static Villager spawnFarmer(GameTestHelper helper, int villagerLevel) {
-        ServerLevel level = helper.getLevel();
-        var registries = level.registryAccess();
         Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
-                .withType(registries, VillagerType.PLAINS)
-                .withProfession(registries, VillagerProfession.FARMER)
+                .setType(VillagerType.PLAINS)
+                .setProfession(VillagerProfession.FARMER)
                 .setLevel(villagerLevel));
         return villager;
     }
 
     private static List<TradeKey> firstTwoPicks(ServerLevel level, Villager villager,
                                                 int merchantLevel, GameTestHelper helper) {
-        ResourceKey<TradeSet> tradeSetKey =
-                villager.getVillagerData().profession().value().getTrades(merchantLevel);
-        helper.assertTrue(tradeSetKey != null, "farmer level " + merchantLevel + " should have a trade set");
-        List<AvailableTrade> available = OfferFactory.enumerate(level, villager, tradeSetKey);
+        List<AvailableTrade> available = OfferFactory.enumerate(level, villager, merchantLevel);
         helper.assertTrue(available.size() >= 2,
                 "farmer level " + merchantLevel + " needs >=2 trade options (got " + available.size() + ")");
         List<TradeKey> picks = new ArrayList<>();
@@ -132,14 +86,13 @@ public final class NeoForgeGameTests {
         return picks;
     }
 
-    // ============================ test bodies ============================
+    // ============================ tests ============================
 
-    static void farmerLevelOneEnumeratesTrades(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void farmerLevelOneEnumeratesTrades(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
-        ResourceKey<TradeSet> tradeSetKey = villager.getVillagerData().profession().value().getTrades(1);
-        helper.assertTrue(tradeSetKey != null, "farmer level 1 should have a trade set");
-        List<AvailableTrade> trades = OfferFactory.enumerate(level, villager, tradeSetKey);
+        List<AvailableTrade> trades = OfferFactory.enumerate(level, villager, 1);
         helper.assertTrue(!trades.isEmpty(), "farmer level 1 enumeration returned no trades");
         for (AvailableTrade t : trades) {
             helper.assertTrue(!t.previewOffer().getResult().isEmpty(),
@@ -148,11 +101,12 @@ public final class NeoForgeGameTests {
         helper.succeed();
     }
 
-    static void levelUpDoesNotRestockLowerLevelTrades(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void levelUpDoesNotRestockLowerLevelTrades(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockPlayers.mock(helper);
 
         ProfileController.onPickerSubmit(player, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         MerchantOffers offers = villager.getOffers();
@@ -180,11 +134,12 @@ public final class NeoForgeGameTests {
         helper.succeed();
     }
 
-    static void normalRestockStillRefillsCarriedOverTrades(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void normalRestockStillRefillsCarriedOverTrades(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = MockPlayers.mock(helper);
 
         ProfileController.onPickerSubmit(player, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         MerchantOffers offers = villager.getOffers();
@@ -209,13 +164,14 @@ public final class NeoForgeGameTests {
         helper.succeed();
     }
 
-    static void ownerCanPickThenReset(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void ownerCanPickThenReset(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
 
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         VillagerProfile p = state.get(villagerId);
         helper.assertTrue(p != null, "owner submit should create a profile");
@@ -238,19 +194,20 @@ public final class NeoForgeGameTests {
         helper.succeed();
     }
 
-    static void nonOwnerIsRejected(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void nonOwnerIsRejected(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
 
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         helper.assertTrue(state.get(villagerId).picksFor(1).size() == 2, "precondition: owner's level-1 picks stored");
 
         villager.setVillagerData(villager.getVillagerData().setLevel(2));
 
-        ServerPlayer intruder = helper.makeMockServerPlayerInLevel();
+        ServerPlayer intruder = MockPlayers.mock(helper);
         ProfileController.onPickerSubmit(intruder, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         VillagerProfile p = state.get(villagerId);
         helper.assertTrue(p.picksFor(2).isEmpty(), "non-owner submit must NOT store level-2 picks");
@@ -266,23 +223,22 @@ public final class NeoForgeGameTests {
         helper.succeed();
     }
 
-    static void opBypassesGates(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void opBypassesGates(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
 
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
 
         villager.setVillagerData(villager.getVillagerData().setLevel(2));
 
-        ServerPlayer op = helper.makeMockServerPlayerInLevel();
-        level.getServer().getPlayerList().op(op.nameAndId(),
-                Optional.of(LevelBasedPermissionSet.OWNER), Optional.empty());
-        helper.assertTrue(
-                op.permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS)),
-                "sanity: op() should grant the mock player GAMEMASTERS-level permission");
+        ServerPlayer op = MockPlayers.mock(helper);
+        MockPlayers.op(op);
+        helper.assertTrue(op.hasPermissions(2),
+                "sanity: the ops-list entry should grant the mock player permission level 2+");
 
         ProfileController.onPickerSubmit(op, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         VillagerProfile p = state.get(villagerId);
@@ -299,14 +255,13 @@ public final class NeoForgeGameTests {
         helper.succeed();
     }
 
-    static void resetClosesStaleTradeSession(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void resetClosesStaleTradeSession(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
 
-        // Submitting picks applies offers and opens the merchant (setTradingPlayer + openTradingScreen),
-        // so afterward the player has a live trade session — exactly the state a reset fires from.
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         helper.assertTrue(villager.getTradingPlayer() == owner,
                 "precondition: villager should be trading with the player after a pick");
@@ -321,19 +276,19 @@ public final class NeoForgeGameTests {
         helper.succeed();
     }
 
-    static void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = MockPlayers.mock(helper);
 
         TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
         boolean original = cfg.vanillaBookLimits();
         cfg.setVanillaBookLimits(true);
         try {
-            ResourceKey<TradeSet> key = villager.getVillagerData().profession().value().getTrades(1);
-            helper.assertTrue(OfferFactory.countBookTemplates(level, villager, key) == 0,
+            helper.assertTrue(OfferFactory.countBookTemplates(level, villager, 1) == 0,
                     "farmer level 1 should have no book templates");
             ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
             VillagerProfile p = state.get(villagerId);
@@ -346,7 +301,8 @@ public final class NeoForgeGameTests {
         helper.succeed();
     }
 
-    static void roundTripsThroughCodec(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void roundTripsThroughCodec(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         RegistryOps<Tag> ops = level.registryAccess().createSerializationContext(NbtOps.INSTANCE);
 
@@ -354,10 +310,10 @@ public final class NeoForgeGameTests {
         UUID owner = UUID.randomUUID();
         Map<Integer, List<TradeKey>> picks = new HashMap<>();
         picks.put(1, List.of(
-                new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_wheat_for_emerald")),
-                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "book/minecraft/sharpness"))));
+                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "listing/1/0")),
+                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "book/1/minecraft/sharpness"))));
         picks.put(2, List.of(
-                new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_pumpkin_for_emerald"))));
+                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "listing/2/1"))));
 
         MerchantOffer offerA = new MerchantOffer(new ItemCost(Items.WHEAT, 20), new ItemStack(Items.EMERALD, 1), 16, 2, 0.05f);
         MerchantOffer offerB = new MerchantOffer(new ItemCost(Items.EMERALD, 3), new ItemStack(Items.BREAD, 6), 12, 1, 0.05f);
@@ -370,7 +326,7 @@ public final class NeoForgeGameTests {
         assertRoundTrips(helper, ops, full, "full profile");
 
         Map<Integer, List<TradeKey>> picksOnly = new HashMap<>();
-        picksOnly.put(1, List.of(new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_potato_for_emerald"))));
+        picksOnly.put(1, List.of(new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "listing/1/2"))));
         VillagerProfile ownerless = new VillagerProfile(
                 UUID.randomUUID(), "minecraft:farmer", Optional.empty(), picksOnly, new HashMap<>());
         assertRoundTrips(helper, ops, ownerless, "ownerless profile");
@@ -407,17 +363,16 @@ public final class NeoForgeGameTests {
                 && a.getXp() == b.getXp();
     }
 
-    static void seededPriceIsStableAndMatchesPreview(GameTestHelper helper) {
+    @GameTest(template = EMPTY)
+    public void seededPriceIsStableAndMatchesPreview(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
-        ResourceKey<TradeSet> tradeSetKey = villager.getVillagerData().profession().value().getTrades(1);
-        helper.assertTrue(tradeSetKey != null, "farmer level 1 should have a trade set");
 
         TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
         boolean originalMode = cfg.vanillaPricing();
         cfg.setVanillaPricing(true);
         try {
-            List<AvailableTrade> first = OfferFactory.enumerate(level, villager, tradeSetKey);
+            List<AvailableTrade> first = OfferFactory.enumerate(level, villager, 1);
             helper.assertTrue(!first.isEmpty(), "farmer level 1 should enumerate at least one trade");
             for (AvailableTrade t : first) {
                 TradeKey k = t.key();
@@ -431,7 +386,7 @@ public final class NeoForgeGameTests {
                 helper.assertTrue(p1 == previewPrice,
                         k.id() + ": applied price " + p1 + " != preview price " + previewPrice + " (reopen-to-reroll guarantee)");
             }
-            List<AvailableTrade> second = OfferFactory.enumerate(level, villager, tradeSetKey);
+            List<AvailableTrade> second = OfferFactory.enumerate(level, villager, 1);
             helper.assertTrue(second.size() == first.size(),
                     "re-enumeration changed the trade count (" + first.size() + " -> " + second.size() + ")");
             for (int i = 0; i < first.size(); i++) {
@@ -443,5 +398,15 @@ public final class NeoForgeGameTests {
             cfg.setVanillaPricing(originalMode);
         }
         helper.succeed();
+    }
+
+    @GameTest(template = EMPTY)
+    public void legacyBucketing(GameTestHelper helper) {
+        NeoForgeLegacyBucketingTest.bucketsLegacyOffersPerLevel(helper);
+    }
+
+    @GameTest(template = EMPTY)
+    public void bookKeyFormat(GameTestHelper helper) {
+        NeoForgeBookKeyTest.bookKeyRoundTripsInNewLowercaseFormat(helper);
     }
 }

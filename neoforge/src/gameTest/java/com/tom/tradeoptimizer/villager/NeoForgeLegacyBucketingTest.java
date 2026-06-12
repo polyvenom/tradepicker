@@ -26,12 +26,11 @@ public final class NeoForgeLegacyBucketingTest {
 
     public static void bucketsLegacyOffersPerLevel(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
-        var registries = level.registryAccess();
 
         Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
-                .withType(registries, VillagerType.PLAINS)
-                .withProfession(registries, VillagerProfession.FARMER)
+                .setType(VillagerType.PLAINS)
+                .setProfession(VillagerProfession.FARMER)
                 .setLevel(5));
 
         checkCase(helper, level, villager, 1, 1, new int[]{0, 1});

@@ -32,8 +32,20 @@ neoForge {
 		// @GameTest and exits non-zero on failure.
 		gameTest {
 			type = "gameTestServer"
+			gameDirectory = file("build/gametest")
 		}
 	}
+}
+
+// 21.1 loads @GameTest SNBT templates from a `gameteststructures/<path>.snbt` directory relative
+// to the server's working dir (the namespace is dropped by the SNBT loader), so stage our empty
+// arena there before the gameTestServer starts.
+def stageGameTestStructures = tasks.register('stageGameTestStructures', Copy) {
+	from(file("src/gameTest/structures"))
+	into(file("build/gametest/gameteststructures"))
+}
+tasks.matching { it.name == 'runGameTest' }.configureEach {
+	dependsOn stageGameTestStructures
 }
 
 // Source-sharing: compile :common into this NeoForge jar. NeoForge uses a single source set
@@ -86,5 +98,9 @@ tasks.configureEach { t ->
 	}
 	if (t.hasProperty('javaExecutable')) {
 		t.javaExecutable.set(jdk25Launcher.map { it.executablePath.asFile.absolutePath })
+	}
+	// MDG's createMinecraftArtifacts exposes its JDK path under this third property name.
+	if (t.hasProperty('toolsJavaExecutable')) {
+		t.toolsJavaExecutable.set(jdk25Launcher.map { it.executablePath.asFile.absolutePath })
 	}
 }

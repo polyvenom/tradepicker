@@ -40,3 +40,20 @@ java {
 		languageVersion = JavaLanguageVersion.of(25)
 	}
 }
+
+// Same JDK-25 override as :neoforge — MDG tool/run tasks default to a Java 21 toolchain, and
+// only JDK 25 is installed (the tools are 21-bytecode and run fine on 25).
+def jdk25Launcher = javaToolchains.launcherFor {
+	languageVersion = JavaLanguageVersion.of(25)
+}
+tasks.configureEach { t ->
+	if (t.hasProperty('javaLauncher')) {
+		t.javaLauncher.set(jdk25Launcher)
+	}
+	if (t.hasProperty('javaExecutable')) {
+		t.javaExecutable.set(jdk25Launcher.map { it.executablePath.asFile.absolutePath })
+	}
+	if (t.hasProperty('toolsJavaExecutable')) {
+		t.toolsJavaExecutable.set(jdk25Launcher.map { it.executablePath.asFile.absolutePath })
+	}
+}
