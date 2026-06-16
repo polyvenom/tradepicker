@@ -30,7 +30,7 @@ public final class ResetConfirmScreen extends Screen {
         addRenderableWidget(Button.builder(Component.literal("Reset"), b -> doReset())
                 .bounds(this.width / 2 - 84, this.height / 2 + 10, 80, 20)
                 .build());
-        addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> minecraft.setScreen(back))
+        addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> minecraft.setScreenAndShow(back))
                 .bounds(this.width / 2 + 4, this.height / 2 + 10, 80, 20)
                 .build());
     }
@@ -38,7 +38,7 @@ public final class ResetConfirmScreen extends Screen {
     private void doReset() {
         ClientServices.NETWORK.sendToServer(new ResetVillagerC2S(villagerId));
         // Close back to the world — server will message the player.
-        minecraft.setScreen(null);
+        minecraft.setScreenAndShow(null);
     }
 
     @Override

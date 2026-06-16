@@ -31,6 +31,6 @@ public final class NeoForgeClientHandlers {
 
     /** Clientbound OPEN_PICKER handler — opens the picker screen. */
     public static void openPicker(OpenPickerS2C payload) {
-        Minecraft.getInstance().setScreen(new TradePickerScreen(payload));
+        Minecraft.getInstance().setScreenAndShow(new TradePickerScreen(payload));
     }
 }
