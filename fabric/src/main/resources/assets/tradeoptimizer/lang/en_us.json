@@ -9,5 +9,11 @@
   "tradeoptimizer.config.vanillaPricing.tip": "OFF (default): every trade shows the lowest possible vanilla price.\nON: trades use vanilla's randomized price range. Prices are seeded per villager and trade, so the picker preview always matches what you pay.\n\nNote: this setting is server-side. On a dedicated server it must be changed in config/tradeoptimizer.json on the server directly.",
   "tradeoptimizer.config.vanillaBookLimits": "Vanilla Book Limits",
   "tradeoptimizer.config.vanillaBookLimits.tip": "OFF (default): you can choose up to two enchanted books at every villager level.\nON: the number of book picks per level is capped to how many book trades vanilla actually offers there (usually one), so the rest of your picks must be non-book trades — a vanilla-accurate librarian economy.\n\nNote: this setting is server-side. On a dedicated server it must be changed in config/tradeoptimizer.json on the server directly.",
+  "tradeoptimizer.config.gearMode": "Gear Enchants: %s",
+  "tradeoptimizer.config.gearMode.single": "Single",
+  "tradeoptimizer.config.gearMode.headline": "Headline",
+  "tradeoptimizer.config.gearMode.tip": "How enchanted GEAR trades (sword, bow, armor, tools, fishing rod) let you choose. Books are unaffected.\n\nHeadline (default): pick the main enchantment you want; the game still rolls its level and any vanilla bonus enchantments — keeps vanilla's surprise and balance.\nSingle: pick exactly one enchantment AND its level. You get only that, nothing extra.\n\n(A full combo builder is coming in a later update.)\n\nNote: this setting is server-side. On a dedicated server it must be changed in config/tradeoptimizer.json on the server directly.",
+  "tradeoptimizer.config.costScaling": "Cost scaling for picked enchants (per profession):",
+  "tradeoptimizer.config.costScaling.tip": "OFF (default): picked enchanted gear / tipped arrows use the normal price (follows Vanilla Pricing).\nON: rarer and higher-level enchantments cost more emeralds, up to vanilla's price cap — a little balance so picking the best isn't free.\n\nNote: curing a villager still drops prices the usual vanilla way. This setting is server-side.",
   "tradeoptimizer.config.done": "Done"
 }
