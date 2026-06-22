@@ -253,11 +253,22 @@ public final class ProfileController {
             return;
         }
 
+        // How many picks this level legitimately allows = vanilla's per-level trade count (capped at 2),
+        // matching what sendPicker told the client. A tampered client could submit more cards than that
+        // (e.g. five enchanted-gear variants from a single-template level) to stuff the villager with
+        // extra trades — trim to the allowed count.
+        int picksRequired = Math.max(1, perLevelTradeCount(sl.registryAccess(), prof, level));
+        if (validatedPicks.size() > picksRequired) {
+            TradeOptimizer.LOGGER.warn("[submit] {} picks exceed allowed {} for {} level {} — trimming",
+                    validatedPicks.size(), picksRequired, profName, level);
+            validatedPicks = new ArrayList<>(validatedPicks.subList(0, picksRequired));
+        }
+
         // 3) Enforce the per-level book cap (vanillaBookLimits). The client greys out excess book
         //    selections, but a tampered client could submit more — reject here. Uses the same
         //    bookPickCap as sendPicker (incl. the no-softlock relaxation), so a legitimate
         //    submission is never rejected. No-op when the toggle is off (cap == picksRequired).
-        int bookCap = bookPickCap(sl, villager, tradeSetKey, available, MAX_TRADES_PER_LEVEL);
+        int bookCap = bookPickCap(sl, villager, tradeSetKey, available, picksRequired);
         int bookPicks = 0;
         for (TradeKey k : validatedPicks) {
             if (OfferFactory.isBookKey(k)) bookPicks++;
@@ -478,15 +489,20 @@ public final class ProfileController {
             return;
         }
 
-        // No-choice fast path. Vanilla always assigns 2 trades per level. When the pool
-        // for this level has 2 or fewer options there's nothing to choose: with 2 the
-        // player would be forced to take both, and with 1 the picker (which requires 2
-        // selections) could never be satisfied — the villager would be stuck and unable
-        // to advance. Example: a toolsmith's master level only offers the diamond
-        // pickaxe. So skip the picker entirely, apply every available option as the
-        // picks, and open the merchant directly. This only ever fires when size <= 2,
-        // so a level with 3+ genuine choices always still shows the picker.
-        if (available.size() <= 2) {
+        // How many trades the player must choose = how many vanilla actually grants at this level:
+        // the size of the level's trade pool, capped at 2. Usually 2, but a level whose pool has a
+        // single template (e.g. a toolsmith's master level = just the diamond pickaxe) grants 1.
+        // This used to be hardcoded to 2, which was fine while a single-template level showed exactly
+        // one card — but now that enchanted gear / tipped arrows EXPAND one template into many cards,
+        // demanding 2 picks there would hand out two trades where vanilla gives one. So derive it.
+        int picksRequired = Math.max(1, perLevelTradeCount(level.registryAccess(), prof, merchantLevel));
+
+        // No-choice fast path. When the expanded pool has no more cards than picks required there's
+        // nothing to choose (e.g. picksRequired=2 with exactly two flat trades, or picksRequired=1 with
+        // a single un-expandable trade), so skip the picker, apply every card, and open the merchant.
+        // A single template that DID expand (many enchant/potion cards) has more cards than picks, so it
+        // still shows the picker — letting the player choose the enchantment/potion (issues #4 / #5).
+        if (available.size() <= picksRequired) {
             List<TradeKey> autoPicks = new ArrayList<>(available.size());
             for (AvailableTrade trade : available) autoPicks.add(trade.key());
 
@@ -503,16 +519,16 @@ public final class ProfileController {
             return;
         }
 
-        TradeOptimizer.LOGGER.info("Picker for {} level {}: {} trade options",
-                profile.profession(), merchantLevel, available.size());
+        TradeOptimizer.LOGGER.info("Picker for {} level {}: {} trade options, pick {}",
+                profile.profession(), merchantLevel, available.size(), picksRequired);
 
-        int maxBookPicks = bookPickCap(level, villager, tradeSetKey, available, MAX_TRADES_PER_LEVEL);
+        int maxBookPicks = bookPickCap(level, villager, tradeSetKey, available, picksRequired);
 
         OpenPickerS2C payload = new OpenPickerS2C(
                 villager.getUUID(),
                 profile.profession(),
                 merchantLevel,
-                MAX_TRADES_PER_LEVEL,
+                picksRequired,
                 maxBookPicks,
                 available
         );

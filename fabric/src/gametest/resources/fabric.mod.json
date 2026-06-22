@@ -13,7 +13,8 @@
       "com.tom.tradeoptimizer.gametest.VillagerProfileCodecGameTest",
       "com.tom.tradeoptimizer.gametest.PriceSeedGameTest",
       "com.tom.tradeoptimizer.villager.LegacyBucketingGameTest",
-      "com.tom.tradeoptimizer.trade.BookKeyFormatGameTest"
+      "com.tom.tradeoptimizer.trade.BookKeyFormatGameTest",
+      "com.tom.tradeoptimizer.gametest.GearTradeGameTest"
     ]
   },
   "depends": {

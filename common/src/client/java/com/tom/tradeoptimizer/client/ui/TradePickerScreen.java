@@ -4,6 +4,7 @@ import com.tom.tradeoptimizer.client.platform.ClientServices;
 import com.tom.tradeoptimizer.network.PickerSubmitC2S;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
+import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
@@ -13,8 +14,10 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.alchemy.PotionContents;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.trading.MerchantOffer;
@@ -23,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -74,8 +78,8 @@ public final class TradePickerScreen extends Screen {
         cardLabels.clear();
         cardTooltips.clear();
         for (AvailableTrade trade : data.available()) {
-            cardLabels.add(buildCardLabel(trade.previewOffer()));
-            cardTooltips.add(buildTooltip(trade.previewOffer()));
+            cardLabels.add(buildCardLabel(trade));
+            cardTooltips.add(buildTooltip(trade));
         }
         rebuildFilter("");
 
@@ -245,13 +249,23 @@ public final class TradePickerScreen extends Screen {
         return text + ".";
     }
 
-    private static String buildCardLabel(MerchantOffer offer) {
-        ItemStack result = offer.getResult();
-        if (!result.is(Items.ENCHANTED_BOOK)) return "";
-        return enchantmentDisplay(result);
+    private static String buildCardLabel(AvailableTrade trade) {
+        ItemStack result = trade.previewOffer().getResult();
+        if (result.is(Items.ENCHANTED_BOOK)) {
+            return storedEnchantDisplay(result);
+        }
+        if (result.is(Items.TIPPED_ARROW)) {
+            return potionDisplay(result);
+        }
+        ItemEnchantments enchants = result.getEnchantments();
+        if (!enchants.isEmpty()) {
+            return gearEnchantLabel(trade.key(), enchants);
+        }
+        return "";
     }
 
-    private static String buildTooltip(MerchantOffer o) {
+    private static String buildTooltip(AvailableTrade trade) {
+        MerchantOffer o = trade.previewOffer();
         StringBuilder sb = new StringBuilder();
         sb.append(o.getBaseCostA().getCount()).append("x ")
                 .append(o.getBaseCostA().getHoverName().getString());
@@ -263,19 +277,73 @@ public final class TradePickerScreen extends Screen {
 
         ItemStack r = o.getResult();
         if (r.is(Items.ENCHANTED_BOOK)) {
-            String ench = enchantmentDisplay(r);
+            String ench = storedEnchantDisplay(r);
             sb.append(ench.isEmpty() ? "Enchanted Book" : ench + " Book");
+        } else if (r.is(Items.TIPPED_ARROW)) {
+            // Vanilla bakes the potion into the hover name ("Arrow of Weakness"), already searchable.
+            sb.append(r.getHoverName().getString());
+        } else if (!r.getEnchantments().isEmpty()) {
+            sb.append(r.getHoverName().getString()).append(" — ").append(allEnchantsDisplay(r.getEnchantments()));
+            if (OfferFactory.headlineEnchantId(trade.key()).isPresent()) {
+                sb.append("  (you choose the headline; level + bonuses rolled by the game)");
+            }
         } else {
             sb.append(r.getHoverName().getString());
         }
         return sb.toString();
     }
 
-    private static String enchantmentDisplay(ItemStack stack) {
+    /** Book label: the single stored enchantment. */
+    private static String storedEnchantDisplay(ItemStack stack) {
         ItemEnchantments enchants = stack.get(DataComponents.STORED_ENCHANTMENTS);
         if (enchants == null || enchants.isEmpty()) return "";
         Holder<Enchantment> ench = enchants.keySet().iterator().next();
-        int level = enchants.getLevel(ench);
+        return enchantName(ench, enchants.getLevel(ench));
+    }
+
+    /**
+     * Gear card label: lead with the player's chosen enchantment (the headline, parsed from the key in
+     * HEADLINE mode; the only enchantment in SINGLE mode), and note how many bonus enchantments ride
+     * along so two headline cards with different bonuses still read distinctly.
+     */
+    private static String gearEnchantLabel(TradeKey key, ItemEnchantments enchants) {
+        Holder<Enchantment> lead = null;
+        Optional<Identifier> headline = OfferFactory.headlineEnchantId(key);
+        if (headline.isPresent()) {
+            for (Holder<Enchantment> h : enchants.keySet()) {
+                if (h.unwrapKey().map(k -> k.identifier().equals(headline.get())).orElse(false)) {
+                    lead = h;
+                    break;
+                }
+            }
+        }
+        if (lead == null) lead = enchants.keySet().iterator().next();
+        String s = enchantName(lead, enchants.getLevel(lead));
+        int more = enchants.size() - 1;
+        if (more > 0) s += " +" + more;
+        return s;
+    }
+
+    /** Every enchantment on the item, for the tooltip (so search matches any of them). */
+    private static String allEnchantsDisplay(ItemEnchantments enchants) {
+        List<String> parts = new ArrayList<>();
+        for (Holder<Enchantment> h : enchants.keySet()) {
+            parts.add(enchantName(h, enchants.getLevel(h)));
+        }
+        parts.sort(String::compareTo);
+        return String.join(", ", parts);
+    }
+
+    private static String potionDisplay(ItemStack stack) {
+        PotionContents pc = stack.get(DataComponents.POTION_CONTENTS);
+        if (pc == null) return "";
+        return pc.potion()
+                .flatMap(Holder::unwrapKey)
+                .map(k -> capitalize(k.identifier().getPath().replace('_', ' ')))
+                .orElse("");
+    }
+
+    private static String enchantName(Holder<Enchantment> ench, int level) {
         String pathStr = ench.unwrapKey().map(k -> k.identifier().getPath()).orElse("enchant");
         String base = capitalize(pathStr.replace('_', ' '));
         // Match vanilla: single-level enchantments (Mending, Silk Touch, Infinity, ...)

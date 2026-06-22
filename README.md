@@ -16,12 +16,15 @@ When the villager levels up, the picker opens again for the new tier. You stay i
 
 **For librarians specifically:** the picker lists every tradeable enchantment at every level as its own card — Mending, Sharpness I through V, Fortune III, Silk Touch, every Treasure book — with a search box so you can filter by name. No more cycling through dozens of rerolls hoping for the right one.
 
+**For enchanted gear** (weaponsmiths, armorers, toolsmiths, fletchers, fishermen): vanilla normally rolls the enchantment on a sword, bow, helmet, pickaxe or rod for you, so there was nothing to choose. Now you choose it. By default (Headline mode) you pick the main enchantment you want and the game still rolls its level and any bonus enchantments — keeping vanilla's variety. An optional Single mode lets you pick the exact enchantment *and* level. Fletchers' tipped arrows work the same way, one card per potion (yes, Arrow of Weakness). Everything stays within what that villager could roll in vanilla — no enchantments it couldn't normally offer. All of this is toggleable in the config (ModMenu on Fabric).
+
 ---
 
 ## Features
 
 - **Direct trade selection** — choose villager trades from a full list instead of rolling the dice
 - **Librarian book picker** — every enchantment × level combination listed individually; search by name
+- **Enchanted gear & tipped arrows** — pick the enchantment on swords, armor, tools, bows and rods (and the potion on tipped arrows) instead of letting vanilla roll it; choose just the headline enchantment or the exact level, with optional per-profession cost scaling
 - **Always minimum price** — all offers generated at vanilla's lowest possible cost; reputation discounts (curing, Hero of the Village) stack on top normally
 - **Levels up with your villager** — picker opens at each new level (Novice → Apprentice → Journeyman → Expert → Master)
 - **Restock works correctly** — picked trades restock on vanilla's normal schedule; villagers have to sleep and return to their workstation
