@@ -4,7 +4,7 @@ import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
 import net.minecraft.world.entity.npc.villager.VillagerType;
@@ -42,7 +42,7 @@ public class LegacyBucketingGameTest {
         ServerLevel level = helper.getLevel();
         var registries = level.registryAccess();
 
-        Villager villager = helper.spawnWithNoFreeWill(EntityTypes.VILLAGER, new BlockPos(1, 2, 1));
+        Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
                 .withType(registries, VillagerType.PLAINS)
                 .withProfession(registries, VillagerProfession.FARMER)

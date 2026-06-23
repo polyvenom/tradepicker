@@ -47,7 +47,7 @@ public abstract class MerchantScreenMixin extends AbstractContainerScreen<Mercha
             UUID id = ClientLastVillager.get();
             if (id == null) return;
             Screen self = (MerchantScreen) (Object) this;
-            this.minecraft.setScreenAndShow(new ResetConfirmScreen(id, self));
+            this.minecraft.setScreen(new ResetConfirmScreen(id, self));
         }).bounds(x, y, btnW, btnH).build());
     }
 }

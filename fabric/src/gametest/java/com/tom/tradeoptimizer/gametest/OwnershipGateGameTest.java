@@ -16,7 +16,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionLevel;
-import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
 import net.minecraft.world.entity.npc.villager.VillagerType;
@@ -228,7 +228,7 @@ public class OwnershipGateGameTest {
     private static Villager spawnFarmer(GameTestHelper helper, int villagerLevel) {
         ServerLevel level = helper.getLevel();
         var registries = level.registryAccess();
-        Villager villager = helper.spawnWithNoFreeWill(EntityTypes.VILLAGER, new BlockPos(1, 2, 1));
+        Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
                 .withType(registries, VillagerType.PLAINS)
                 .withProfession(registries, VillagerProfession.FARMER)

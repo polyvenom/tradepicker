@@ -10,6 +10,6 @@ public final class ClientNetworkHandler {
     public static void register() {
         ClientPlayNetworking.registerGlobalReceiver(NetworkPayloads.OPEN_PICKER_TYPE, (payload, context) ->
                 context.client().execute(() ->
-                        context.client().setScreenAndShow(new TradePickerScreen(payload))));
+                        context.client().setScreen(new TradePickerScreen(payload))));
     }
 }
