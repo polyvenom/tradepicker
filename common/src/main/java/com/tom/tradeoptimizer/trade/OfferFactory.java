@@ -2,10 +2,13 @@ package com.tom.tradeoptimizer.trade;
 
 import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
+import com.tom.tradeoptimizer.config.TradeOptimizerConfig.GearEnchantMode;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.HolderSet;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -16,14 +19,24 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.entity.npc.VillagerTrades;
 import net.minecraft.world.flag.FeatureFlags;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.alchemy.Potion;
+import net.minecraft.world.item.alchemy.PotionContents;
 import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.EnchantmentInstance;
+import net.minecraft.world.item.enchantment.ItemEnchantments;
+import net.minecraft.world.item.trading.ItemCost;
 import net.minecraft.world.item.trading.MerchantOffer;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 /**
  * Enumerate the trade pool for a (profession, level) pair and produce min-cost
@@ -51,6 +64,16 @@ public final class OfferFactory {
 
     private static final String BOOK_PREFIX = "book/";
     private static final String LISTING_PREFIX = "listing/";
+    private static final String GEAR_PREFIX = "gear/";
+    private static final String ARROW_PREFIX = "arrow/";
+    private static final String GEAR_SINGLE = "single/";
+    private static final String GEAR_HEADLINE = "headline/";
+
+    /** Vanilla villager enchanted-gear trades roll the enchant level in this base range (5..19). */
+    private static final int GEAR_BASE_LEVEL_MIN = 5;
+    private static final int GEAR_BASE_LEVEL_MAX = 19;
+    private static final int HEADLINE_ATTEMPTS = 256;
+    private static final int EMERALD_CAP = 64;
 
     /** Villager merchant levels run 1 (Novice) .. 5 (Master). */
     private static final int MAX_MERCHANT_LEVEL = 5;
@@ -95,8 +118,19 @@ public final class OfferFactory {
                 MerchantOffer preview = listings[i].getOffer(villager, costRandom(villager, flatKey));
                 if (preview == null) continue;
 
-                if (preview.getResult().is(Items.ENCHANTED_BOOK)) {
+                ItemStack result = preview.getResult();
+                if (result.is(Items.ENCHANTED_BOOK)) {
                     out.addAll(expandBookTrade(villager, listings[i], registries));
+                } else if (result.is(Items.TIPPED_ARROW)) {
+                    List<AvailableTrade> arrows = expandArrowTrade(villager, preview, registries);
+                    if (arrows.isEmpty()) out.add(new AvailableTrade(flatKey, preview));
+                    else out.addAll(arrows);
+                } else if (!result.getEnchantments().isEmpty()) {
+                    // Enchanted gear: vanilla rolls a random enchantment, so the picker saw ONE card.
+                    // Expand into player-choosable cards (issues #4 / #5).
+                    List<AvailableTrade> gear = expandGearTrade(level, villager, preview, registries);
+                    if (gear.isEmpty()) out.add(new AvailableTrade(flatKey, preview));
+                    else out.addAll(gear);
                 } else {
                     out.add(new AvailableTrade(flatKey, preview));
                 }
@@ -134,6 +168,12 @@ public final class OfferFactory {
     public static Optional<MerchantOffer> generate(ServerLevel level, Villager villager, TradeKey key, int merchantLevel) {
         if (isBookKey(key)) {
             return generateBookOffer(level, villager, key, merchantLevel);
+        }
+        if (isGearKey(key)) {
+            return generateGearOffer(level, villager, key, merchantLevel);
+        }
+        if (isArrowKey(key)) {
+            return generateArrowOffer(level, villager, key, merchantLevel);
         }
         ListingRef ref = parseListingKey(key);
         if (ref == null) return Optional.empty();
@@ -236,6 +276,359 @@ public final class OfferFactory {
         TradeOptimizer.LOGGER.warn("[book-regen] FAILED to regenerate {} (no book template found at any level)",
                 synthetic.id());
         return Optional.empty();
+    }
+
+    // -------------------------------------------------------------------------
+    // Enchanted gear + tipped arrow enumeration / generation (1.21.1)
+    // -------------------------------------------------------------------------
+
+    private record EnchPick(Holder<Enchantment> ench, int level) {}
+
+    /** Cost/shape carried over from the vanilla gear / tipped-arrow listing's min preview. */
+    private record GearTemplateInfo(ItemCost costA, Optional<ItemCost> costB, int count,
+                                    int maxUses, int xp, float priceMultiplier) {
+        static GearTemplateInfo from(MerchantOffer o) {
+            return new GearTemplateInfo(o.getItemCostA(), o.getItemCostB(), o.getResult().getCount(),
+                    o.getMaxUses(), o.getXp(), o.getPriceMultiplier());
+        }
+    }
+
+    private static List<AvailableTrade> expandGearTrade(ServerLevel level, Villager villager,
+                                                        MerchantOffer templatePreview, HolderLookup.Provider registries) {
+        List<AvailableTrade> out = new ArrayList<>();
+        Optional<HolderSet<Enchantment>> poolOpt = onTradedPool(registries);
+        if (poolOpt.isEmpty()) return out;
+        HolderSet<Enchantment> pool = poolOpt.get();
+
+        Item item = templatePreview.getResult().getItem();
+        ResourceLocation itemId = BuiltInRegistries.ITEM.getKey(item);
+        GearTemplateInfo tmpl = GearTemplateInfo.from(templatePreview);
+        String profId = professionId(villager);
+        ItemStack base = new ItemStack(item, tmpl.count());
+
+        Map<Holder<Enchantment>, Integer> reachable = reachableGearEnchants(base, pool);
+        if (reachable.isEmpty()) return out;
+
+        List<Map.Entry<Holder<Enchantment>, Integer>> entries = new ArrayList<>(reachable.entrySet());
+        entries.sort((a, b) -> enchId(a.getKey()).compareTo(enchId(b.getKey())));
+
+        GearEnchantMode mode = TradeOptimizerConfig.get().gearEnchantMode();
+
+        for (Map.Entry<Holder<Enchantment>, Integer> e : entries) {
+            Holder<Enchantment> ench = e.getKey();
+            Optional<ResourceKey<Enchantment>> ek = ench.unwrapKey();
+            if (ek.isEmpty()) continue;
+            ResourceLocation enchId = ek.get().location();
+
+            if (mode == GearEnchantMode.SINGLE) {
+                int maxLvl = e.getValue();
+                for (int lvl = ench.value().getMinLevel(); lvl <= maxLvl; lvl++) {
+                    TradeKey key = gearSingleKey(itemId, enchId, lvl);
+                    MerchantOffer offer = buildGearOffer(level, villager, tmpl, item, profId,
+                            GearEnchantMode.SINGLE, ench, lvl, key, pool);
+                    if (offer != null) out.add(new AvailableTrade(key, offer));
+                }
+            } else {
+                TradeKey key = gearHeadlineKey(itemId, enchId);
+                MerchantOffer offer = buildGearOffer(level, villager, tmpl, item, profId,
+                        GearEnchantMode.HEADLINE, ench, 1, key, pool);
+                if (offer != null) out.add(new AvailableTrade(key, offer));
+            }
+        }
+        return out;
+    }
+
+    /** Every (enchantment → max level) vanilla can roll on {@code base} via the enchanting-table algorithm. */
+    private static Map<Holder<Enchantment>, Integer> reachableGearEnchants(ItemStack base, HolderSet<Enchantment> pool) {
+        Map<Holder<Enchantment>, Integer> max = new LinkedHashMap<>();
+        int enchantability = base.getItem().getEnchantmentValue();
+        if (enchantability <= 0) return max;
+        int spread = enchantability / 4;
+        int pMin = Math.max(1, Math.round((GEAR_BASE_LEVEL_MIN + 1) * 0.85f));
+        int pMax = Math.round((GEAR_BASE_LEVEL_MAX + 1 + 2 * spread) * 1.15f);
+        for (int p = pMin; p <= pMax; p++) {
+            List<EnchantmentInstance> avail;
+            try {
+                avail = EnchantmentHelper.getAvailableEnchantmentResults(p, base, pool.stream());
+            } catch (Exception ex) {
+                continue;
+            }
+            for (EnchantmentInstance inst : avail) {
+                max.merge(inst.enchantment, inst.level, Math::max);
+            }
+        }
+        return max;
+    }
+
+    private static MerchantOffer buildGearOffer(ServerLevel level, Villager villager, GearTemplateInfo tmpl,
+                                                Item item, String profId, GearEnchantMode mode,
+                                                Holder<Enchantment> ench, int singleLevel,
+                                                TradeKey key, HolderSet<Enchantment> pool) {
+        ItemStack result = new ItemStack(item, tmpl.count());
+        List<EnchPick> finalSet = new ArrayList<>();
+
+        if (mode == GearEnchantMode.SINGLE) {
+            result.enchant(ench, singleLevel);
+            finalSet.add(new EnchPick(ench, singleLevel));
+        } else {
+            ItemStack rolled = rollHeadline(level, result, ench, priceSeed(villager, key), pool);
+            if (rolled == null) return null;
+            result = rolled;
+            ItemEnchantments ie = result.getEnchantments();
+            for (Holder<Enchantment> h : ie.keySet()) finalSet.add(new EnchPick(h, ie.getLevel(h)));
+        }
+
+        ItemCost costA = TradeOptimizerConfig.get().isCostScaling(profId)
+                ? scaledCost(finalSet)
+                : tmpl.costA();
+        return new MerchantOffer(costA, tmpl.costB(), result, tmpl.maxUses(), tmpl.xp(), tmpl.priceMultiplier());
+    }
+
+    /** Roll an enchanted item the vanilla way but guarantee {@code headline} ends up on it. Deterministic per seed. */
+    private static ItemStack rollHeadline(ServerLevel level, ItemStack base, Holder<Enchantment> headline,
+                                          long seed, HolderSet<Enchantment> pool) {
+        ResourceLocation targetId = headline.unwrapKey().map(ResourceKey::location).orElse(null);
+        if (targetId == null) return null;
+        Optional<? extends HolderSet<Enchantment>> poolOpt = Optional.of(pool);
+        for (int i = 0; i < HEADLINE_ATTEMPTS; i++) {
+            RandomSource r = RandomSource.create(seed * 31L + i);
+            int lvl = GEAR_BASE_LEVEL_MIN + r.nextInt(GEAR_BASE_LEVEL_MAX - GEAR_BASE_LEVEL_MIN + 1);
+            ItemStack out;
+            try {
+                out = EnchantmentHelper.enchantItem(r, base.copy(), lvl, level.registryAccess(), poolOpt);
+            } catch (Exception ex) {
+                continue;
+            }
+            if (hasEnchant(out, targetId)) return out;
+        }
+        ItemStack out = base.copy();
+        out.enchant(headline, headline.value().getMinLevel());
+        return out;
+    }
+
+    private static boolean hasEnchant(ItemStack stack, ResourceLocation id) {
+        for (Holder<Enchantment> h : stack.getEnchantments().keySet()) {
+            if (h.unwrapKey().map(k -> k.location().equals(id)).orElse(false)) return true;
+        }
+        return false;
+    }
+
+    private static ItemCost scaledCost(List<EnchPick> picks) {
+        int total = 2;
+        for (EnchPick p : picks) {
+            total += Math.max(1, p.ench().value().getAnvilCost()) * p.level();
+        }
+        total = Math.max(1, Math.min(EMERALD_CAP, total));
+        return new ItemCost(Items.EMERALD, total);
+    }
+
+    private static List<AvailableTrade> expandArrowTrade(Villager villager, MerchantOffer templatePreview,
+                                                         HolderLookup.Provider registries) {
+        List<AvailableTrade> out = new ArrayList<>();
+        GearTemplateInfo tmpl = GearTemplateInfo.from(templatePreview);
+        registries.lookupOrThrow(Registries.POTION).listElements().forEach(h -> {
+            Potion p = h.value();
+            if (p.getEffects().isEmpty()) return;
+            Optional<ResourceKey<Potion>> pk = h.unwrapKey();
+            if (pk.isEmpty()) return;
+            out.add(new AvailableTrade(arrowKey(pk.get().location()), buildArrowOffer(tmpl, h)));
+        });
+        return out;
+    }
+
+    private static MerchantOffer buildArrowOffer(GearTemplateInfo tmpl, Holder<Potion> potion) {
+        ItemStack arrow = new ItemStack(Items.TIPPED_ARROW, tmpl.count());
+        arrow.set(DataComponents.POTION_CONTENTS, new PotionContents(potion));
+        return new MerchantOffer(tmpl.costA(), tmpl.costB(), arrow, tmpl.maxUses(), tmpl.xp(), tmpl.priceMultiplier());
+    }
+
+    private static Optional<MerchantOffer> generateGearOffer(ServerLevel level, Villager villager,
+                                                             TradeKey key, int merchantLevel) {
+        GearKey gk = parseGearKey(key);
+        if (gk == null) return Optional.empty();
+        HolderLookup.Provider registries = level.registryAccess();
+
+        Item item = registries.lookupOrThrow(Registries.ITEM)
+                .get(ResourceKey.create(Registries.ITEM, gk.item()))
+                .map(Holder.Reference::value).orElse(null);
+        Optional<Holder.Reference<Enchantment>> ench = registries.lookupOrThrow(Registries.ENCHANTMENT)
+                .get(ResourceKey.create(Registries.ENCHANTMENT, gk.ench()));
+        if (item == null || ench.isEmpty()) return Optional.empty();
+
+        Optional<HolderSet<Enchantment>> pool = onTradedPool(registries);
+        if (pool.isEmpty()) return Optional.empty();
+
+        GearTemplateInfo tmpl = findTemplate(level, villager, merchantLevel,
+                o -> o.getResult().getItem() == item && !o.getResult().getEnchantments().isEmpty());
+        if (tmpl == null) {
+            TradeOptimizer.LOGGER.warn("[gear-regen] no gear template for {}", key.id());
+            return Optional.empty();
+        }
+        return Optional.ofNullable(buildGearOffer(level, villager, tmpl, item, professionId(villager),
+                gk.mode(), ench.get(), gk.level(), key, pool.get()));
+    }
+
+    private static Optional<MerchantOffer> generateArrowOffer(ServerLevel level, Villager villager,
+                                                              TradeKey key, int merchantLevel) {
+        ResourceLocation potionId = parseArrowKey(key);
+        if (potionId == null) return Optional.empty();
+        HolderLookup.Provider registries = level.registryAccess();
+        Optional<Holder.Reference<Potion>> potion = registries.lookupOrThrow(Registries.POTION)
+                .get(ResourceKey.create(Registries.POTION, potionId));
+        if (potion.isEmpty()) return Optional.empty();
+
+        GearTemplateInfo tmpl = findTemplate(level, villager, merchantLevel,
+                o -> o.getResult().is(Items.TIPPED_ARROW));
+        if (tmpl == null) {
+            TradeOptimizer.LOGGER.warn("[arrow-regen] no tipped-arrow template for {}", key.id());
+            return Optional.empty();
+        }
+        return Optional.of(buildArrowOffer(tmpl, potion.get()));
+    }
+
+    /** Scan this villager's listing pools for a min-preview matching the predicate; return its cost/shape. */
+    private static GearTemplateInfo findTemplate(ServerLevel level, Villager villager, int merchantLevel,
+                                                 Predicate<MerchantOffer> match) {
+        VillagerProfession prof = villager.getVillagerData().getProfession();
+        List<Integer> candidateLevels = new ArrayList<>();
+        if (merchantLevel >= 1 && merchantLevel <= MAX_MERCHANT_LEVEL) candidateLevels.add(merchantLevel);
+        for (int lvl = 1; lvl <= MAX_MERCHANT_LEVEL; lvl++) {
+            if (!candidateLevels.contains(lvl)) candidateLevels.add(lvl);
+        }
+        for (int lvl : candidateLevels) {
+            VillagerTrades.ItemListing[] listings = listingsFor(level, prof, lvl);
+            if (listings == null) continue;
+            for (int i = 0; i < listings.length; i++) {
+                try {
+                    MerchantOffer preview = listings[i].getOffer(villager, costRandom(villager, buildListingKey(lvl, i)));
+                    if (preview != null && match.test(preview)) return GearTemplateInfo.from(preview);
+                } catch (Exception e) {
+                    // skip
+                }
+            }
+        }
+        return null;
+    }
+
+    // ---- gear / arrow synthetic key codec (length-prefixed; ResourceLocation paths may contain '/') ----
+
+    private record GearKey(GearEnchantMode mode, ResourceLocation item, ResourceLocation ench, int level) {}
+
+    public static boolean isGearKey(TradeKey key) {
+        return key.id().getNamespace().equals(TradeOptimizer.MOD_ID) && key.id().getPath().startsWith(GEAR_PREFIX);
+    }
+
+    public static boolean isArrowKey(TradeKey key) {
+        return key.id().getNamespace().equals(TradeOptimizer.MOD_ID) && key.id().getPath().startsWith(ARROW_PREFIX);
+    }
+
+    /** For a HEADLINE gear key, the enchantment the player chose; empty for SINGLE / non-gear. */
+    public static Optional<ResourceLocation> headlineEnchantId(TradeKey key) {
+        if (!isGearKey(key)) return Optional.empty();
+        GearKey gk = parseGearKey(key);
+        if (gk == null || gk.mode() != GearEnchantMode.HEADLINE) return Optional.empty();
+        return Optional.of(gk.ench());
+    }
+
+    static TradeKey gearSingleKey(ResourceLocation item, ResourceLocation ench, int level) {
+        StringBuilder sb = new StringBuilder(GEAR_PREFIX).append(GEAR_SINGLE).append(level).append('/');
+        appendId(sb, item);
+        sb.append('/');
+        appendId(sb, ench);
+        return new TradeKey(ResourceLocation.fromNamespaceAndPath(TradeOptimizer.MOD_ID, sb.toString()));
+    }
+
+    static TradeKey gearHeadlineKey(ResourceLocation item, ResourceLocation ench) {
+        StringBuilder sb = new StringBuilder(GEAR_PREFIX).append(GEAR_HEADLINE);
+        appendId(sb, item);
+        sb.append('/');
+        appendId(sb, ench);
+        return new TradeKey(ResourceLocation.fromNamespaceAndPath(TradeOptimizer.MOD_ID, sb.toString()));
+    }
+
+    static TradeKey arrowKey(ResourceLocation potion) {
+        StringBuilder sb = new StringBuilder(ARROW_PREFIX);
+        appendId(sb, potion);
+        return new TradeKey(ResourceLocation.fromNamespaceAndPath(TradeOptimizer.MOD_ID, sb.toString()));
+    }
+
+    private static void appendId(StringBuilder sb, ResourceLocation id) {
+        String[] pathSegs = id.getPath().split("/");
+        sb.append(1 + pathSegs.length).append('/').append(id.getNamespace());
+        for (String seg : pathSegs) sb.append('/').append(seg);
+    }
+
+    private static ResourceLocation readId(String[] parts, int[] cur) {
+        if (cur[0] >= parts.length) return null;
+        int count;
+        try {
+            count = Integer.parseInt(parts[cur[0]++]);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        if (count < 2 || cur[0] + count > parts.length) return null;
+        String ns = parts[cur[0]++];
+        StringBuilder path = new StringBuilder();
+        for (int i = 1; i < count; i++) {
+            if (i > 1) path.append('/');
+            path.append(parts[cur[0]++]);
+        }
+        try {
+            return ResourceLocation.fromNamespaceAndPath(ns, path.toString());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    static GearKey parseGearKey(TradeKey key) {
+        String path = key.id().getPath();
+        if (!path.startsWith(GEAR_PREFIX)) return null;
+        String rest = path.substring(GEAR_PREFIX.length());
+        GearEnchantMode mode;
+        String body;
+        if (rest.startsWith(GEAR_SINGLE)) {
+            mode = GearEnchantMode.SINGLE;
+            body = rest.substring(GEAR_SINGLE.length());
+        } else if (rest.startsWith(GEAR_HEADLINE)) {
+            mode = GearEnchantMode.HEADLINE;
+            body = rest.substring(GEAR_HEADLINE.length());
+        } else {
+            return null;
+        }
+        String[] parts = body.split("/");
+        int[] cur = {0};
+        int level = 1;
+        if (mode == GearEnchantMode.SINGLE) {
+            if (cur[0] >= parts.length) return null;
+            try {
+                level = Integer.parseInt(parts[cur[0]++]);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        ResourceLocation item = readId(parts, cur);
+        ResourceLocation ench = readId(parts, cur);
+        if (item == null || ench == null) return null;
+        return new GearKey(mode, item, ench, level);
+    }
+
+    static ResourceLocation parseArrowKey(TradeKey key) {
+        String path = key.id().getPath();
+        if (!path.startsWith(ARROW_PREFIX)) return null;
+        return readId(path.substring(ARROW_PREFIX.length()).split("/"), new int[]{0});
+    }
+
+    private static Optional<HolderSet<Enchantment>> onTradedPool(HolderLookup.Provider registries) {
+        var reg = registries.lookupOrThrow(Registries.ENCHANTMENT);
+        return reg.get(EnchantmentTags.ON_TRADED_EQUIPMENT).map(t -> (HolderSet<Enchantment>) t);
+    }
+
+    private static String professionId(Villager villager) {
+        return BuiltInRegistries.VILLAGER_PROFESSION.getKey(villager.getVillagerData().getProfession()).toString();
+    }
+
+    private static String enchId(Holder<Enchantment> ench) {
+        return ench.unwrapKey().map(k -> k.location().toString()).orElse("");
     }
 
     // -------------------------------------------------------------------------

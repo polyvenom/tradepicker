@@ -8,6 +8,9 @@ import com.tom.tradeoptimizer.platform.Services;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Server-side configuration for Trade Picker.
@@ -57,6 +60,61 @@ public final class TradeOptimizerConfig {
 
     public void setVanillaBookLimits(boolean value) {
         this.vanillaBookLimits = value;
+        save();
+    }
+
+    /**
+     * How enchanted GEAR trades (sword, bow, armor, tools, fishing rod — anything that isn't an
+     * enchanted book) are turned into pickable cards. Books are unaffected.
+     *
+     * <ul>
+     *   <li>{@link GearEnchantMode#SINGLE} — one card per (enchantment × level).</li>
+     *   <li>{@link GearEnchantMode#HEADLINE} (default) — one card per enchantment; the game still
+     *       rolls its level AND any vanilla bonus enchantments.</li>
+     *   <li>{@link GearEnchantMode#COMBO} — reserved for the upcoming combo-builder UI; treated as
+     *       HEADLINE until that ships so saves written now stay valid.</li>
+     * </ul>
+     */
+    public enum GearEnchantMode {
+        SINGLE, HEADLINE, COMBO;
+
+        public static GearEnchantMode parse(String s) {
+            if (s == null) return HEADLINE;
+            try {
+                return valueOf(s.trim().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                return HEADLINE;
+            }
+        }
+    }
+
+    /** Stored as a string so the JSON stays human-editable ("single" / "headline" / "combo"). */
+    private String gearEnchantMode = GearEnchantMode.HEADLINE.name().toLowerCase(Locale.ROOT);
+
+    public GearEnchantMode gearEnchantMode() {
+        return GearEnchantMode.parse(gearEnchantMode);
+    }
+
+    public void setGearEnchantMode(GearEnchantMode mode) {
+        this.gearEnchantMode = mode.name().toLowerCase(Locale.ROOT);
+        save();
+    }
+
+    /**
+     * Professions (by full id, e.g. {@code minecraft:weaponsmith}) for which picked enchanted-gear /
+     * tipped-arrow trades cost MORE for rarer + higher-level enchantments, instead of the mod's flat
+     * cheapest price. Empty by default — every profession just follows {@link #vanillaPricing}.
+     */
+    private Set<String> costScalingProfessions = new TreeSet<>();
+
+    public boolean isCostScaling(String professionId) {
+        return costScalingProfessions != null && costScalingProfessions.contains(professionId);
+    }
+
+    public void setCostScaling(String professionId, boolean value) {
+        if (costScalingProfessions == null) costScalingProfessions = new TreeSet<>();
+        if (value) costScalingProfessions.add(professionId);
+        else costScalingProfessions.remove(professionId);
         save();
     }
 
