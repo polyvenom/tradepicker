@@ -1,6 +1,7 @@
 package com.tom.tradeoptimizer.gametest;
 
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
+import com.tom.tradeoptimizer.config.TradeOptimizerConfig.GearEnchantMode;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.NeoForgeBookKeyTest;
 import com.tom.tradeoptimizer.trade.OfferFactory;
@@ -28,6 +29,7 @@ import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
 import net.minecraft.world.entity.npc.villager.VillagerType;
 import net.minecraft.world.item.ItemStack;
@@ -85,6 +87,9 @@ public final class NeoForgeGameTests {
             helper.register(fnKey("book_limit_nonbook"), (Consumer<GameTestHelper>) NeoForgeGameTests::vanillaBookLimitsDoesNotBlockNonBookPicks);
             helper.register(fnKey("codec_roundtrip"), (Consumer<GameTestHelper>) NeoForgeGameTests::roundTripsThroughCodec);
             helper.register(fnKey("price_seed"), (Consumer<GameTestHelper>) NeoForgeGameTests::seededPriceIsStableAndMatchesPreview);
+            helper.register(fnKey("gear_headline"), (Consumer<GameTestHelper>) NeoForgeGameTests::weaponsmithGearHeadlineRoundTrips);
+            helper.register(fnKey("gear_single"), (Consumer<GameTestHelper>) NeoForgeGameTests::weaponsmithGearSingleRoundTrips);
+            helper.register(fnKey("arrow_roundtrip"), (Consumer<GameTestHelper>) NeoForgeGameTests::fletcherArrowRoundTrips);
             helper.register(fnKey("legacy_bucketing"), (Consumer<GameTestHelper>) NeoForgeLegacyBucketingTest::bucketsLegacyOffersPerLevel);
             helper.register(fnKey("book_key_format"), (Consumer<GameTestHelper>) NeoForgeBookKeyTest::bookKeyRoundTripsInNewLowercaseFormat);
         });
@@ -98,7 +103,8 @@ public final class NeoForgeGameTests {
                 "farmer_enumerates", "restock_levelup", "restock_normal",
                 "owner_pick_reset", "non_owner_rejected", "op_bypasses", "reset_closes_session",
                 "book_limit_nonbook",
-                "codec_roundtrip", "price_seed", "legacy_bucketing", "book_key_format")) {
+                "codec_roundtrip", "price_seed", "legacy_bucketing", "book_key_format",
+                "gear_headline", "gear_single", "arrow_roundtrip")) {
             event.registerTest(Identifier.fromNamespaceAndPath(NS, name),
                     new FunctionGameTestInstance(fnKey(name),
                             new TestData<>(env, EMPTY_STRUCTURE, 200, 0, true)));
@@ -405,6 +411,91 @@ public final class NeoForgeGameTests {
                 && a.getBaseCostA().getCount() == b.getBaseCostA().getCount()
                 && a.getMaxUses() == b.getMaxUses()
                 && a.getXp() == b.getXp();
+    }
+
+    // ---- gear / tipped-arrow round-trips (mirror of Fabric GearTradeGameTest) ----
+
+    private static Villager spawnProf(GameTestHelper helper, ResourceKey<VillagerProfession> prof, int merchantLevel) {
+        ServerLevel level = helper.getLevel();
+        var registries = level.registryAccess();
+        Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
+        villager.setVillagerData(villager.getVillagerData()
+                .withType(registries, VillagerType.PLAINS)
+                .withProfession(registries, prof)
+                .withLevel(merchantLevel));
+        return villager;
+    }
+
+    private static AvailableTrade firstGearCard(ServerLevel level, Villager villager, int merchantLevel) {
+        ResourceKey<TradeSet> key = villager.getVillagerData().profession().value().getTrades(merchantLevel);
+        if (key == null) return null;
+        for (AvailableTrade t : OfferFactory.enumerate(level, villager, key)) {
+            if (OfferFactory.isGearKey(t.key())) return t;
+        }
+        return null;
+    }
+
+    private static void gearRoundTrip(GameTestHelper helper, GearEnchantMode mode) {
+        TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
+        GearEnchantMode original = cfg.gearEnchantMode();
+        try {
+            cfg.setGearEnchantMode(mode);
+            ServerLevel level = helper.getLevel();
+            Villager villager = spawnProf(helper, VillagerProfession.WEAPONSMITH, 1);
+            AvailableTrade card = firstGearCard(level, villager, 1);
+            helper.assertTrue(card != null, "weaponsmith level 1 produced no gear cards in " + mode + " mode");
+            helper.assertTrue(!card.previewOffer().getResult().getEnchantments().isEmpty(),
+                    "gear preview result has no enchantments");
+            Optional<MerchantOffer> regen = OfferFactory.generate(level, villager, card.key(), 1);
+            helper.assertTrue(regen.isPresent(), "gear key " + card.key().id() + " failed to regenerate");
+            ItemStack result = regen.get().getResult();
+            helper.assertTrue(!result.getEnchantments().isEmpty(), "regenerated gear has no enchantments");
+            helper.assertTrue(ItemStack.matches(result, card.previewOffer().getResult()),
+                    "regenerated gear offer differs from its preview (non-deterministic)");
+            Optional<Identifier> headline = OfferFactory.headlineEnchantId(card.key());
+            if (headline.isPresent()) {
+                boolean found = false;
+                for (Holder<Enchantment> h : result.getEnchantments().keySet()) {
+                    if (h.unwrapKey().map(k -> k.identifier().equals(headline.get())).orElse(false)) {
+                        found = true;
+                        break;
+                    }
+                }
+                helper.assertTrue(found, "headline enchantment " + headline.get() + " missing from rolled gear");
+            }
+            helper.succeed();
+        } finally {
+            cfg.setGearEnchantMode(original);
+        }
+    }
+
+    static void weaponsmithGearHeadlineRoundTrips(GameTestHelper helper) {
+        gearRoundTrip(helper, GearEnchantMode.HEADLINE);
+    }
+
+    static void weaponsmithGearSingleRoundTrips(GameTestHelper helper) {
+        gearRoundTrip(helper, GearEnchantMode.SINGLE);
+    }
+
+    static void fletcherArrowRoundTrips(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnProf(helper, VillagerProfession.FLETCHER, 5);
+        for (int lvl = 1; lvl <= 5; lvl++) {
+            villager.setVillagerData(villager.getVillagerData().withLevel(lvl));
+            ResourceKey<TradeSet> key = villager.getVillagerData().profession().value().getTrades(lvl);
+            if (key == null) continue;
+            for (AvailableTrade t : OfferFactory.enumerate(level, villager, key)) {
+                if (OfferFactory.isArrowKey(t.key())) {
+                    Optional<MerchantOffer> regen = OfferFactory.generate(level, villager, t.key(), lvl);
+                    helper.assertTrue(regen.isPresent(), "arrow key failed to regenerate");
+                    helper.assertTrue(regen.get().getResult().is(Items.TIPPED_ARROW),
+                            "regenerated arrow offer is not a tipped arrow");
+                    helper.succeed();
+                    return;
+                }
+            }
+        }
+        helper.succeed();
     }
 
     static void seededPriceIsStableAndMatchesPreview(GameTestHelper helper) {
