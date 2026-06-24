@@ -24,13 +24,13 @@ config = "tradeoptimizer.client.mixins.json"
 [[dependencies.tradeoptimizer]]
 modId = "neoforge"
 type = "required"
-versionRange = "[21.1,21.2)"
+versionRange = "[21.2,21.4)"
 ordering = "NONE"
 side = "BOTH"
 
 [[dependencies.tradeoptimizer]]
 modId = "minecraft"
 type = "required"
-versionRange = "[1.21,1.21.2)"
+versionRange = "[1.21.2,1.21.4)"
 ordering = "NONE"
 side = "BOTH"

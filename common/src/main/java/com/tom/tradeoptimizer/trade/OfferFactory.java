@@ -24,6 +24,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.Potion;
 import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.enchantment.Enchantable;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.EnchantmentInstance;
@@ -341,8 +342,10 @@ public final class OfferFactory {
     /** Every (enchantment → max level) vanilla can roll on {@code base} via the enchanting-table algorithm. */
     private static Map<Holder<Enchantment>, Integer> reachableGearEnchants(ItemStack base, HolderSet<Enchantment> pool) {
         Map<Holder<Enchantment>, Integer> max = new LinkedHashMap<>();
-        int enchantability = base.getItem().getEnchantmentValue();
-        if (enchantability <= 0) return max;
+        // 1.21.2 moved enchantability off Item.getEnchantmentValue() onto the ENCHANTABLE component.
+        Enchantable enchantable = base.get(DataComponents.ENCHANTABLE);
+        if (enchantable == null) return max;
+        int enchantability = enchantable.value();
         int spread = enchantability / 4;
         int pMin = Math.max(1, Math.round((GEAR_BASE_LEVEL_MIN + 1) * 0.85f));
         int pMax = Math.round((GEAR_BASE_LEVEL_MAX + 1 + 2 * spread) * 1.15f);
