@@ -83,19 +83,22 @@ public final class OfferFactory {
     // Trade pool access (1.21.1 hardcoded listing tables)
     // -------------------------------------------------------------------------
 
-    private static Int2ObjectMap<VillagerTrades.ItemListing[]> tradeMap(ServerLevel level, VillagerProfession prof) {
-        Map<VillagerProfession, Int2ObjectMap<VillagerTrades.ItemListing[]>> source =
+    // 1.21.5: VillagerTrades.TRADES is keyed by ResourceKey<VillagerProfession>, not VillagerProfession.
+    private static Int2ObjectMap<VillagerTrades.ItemListing[]> tradeMap(ServerLevel level, ResourceKey<VillagerProfession> profKey) {
+        Map<ResourceKey<VillagerProfession>, Int2ObjectMap<VillagerTrades.ItemListing[]>> source =
                 level.enabledFeatures().contains(FeatureFlags.TRADE_REBALANCE)
                         ? VillagerTrades.EXPERIMENTAL_TRADES
                         : VillagerTrades.TRADES;
-        Int2ObjectMap<VillagerTrades.ItemListing[]> map = source.get(prof);
+        Int2ObjectMap<VillagerTrades.ItemListing[]> map = source.get(profKey);
         // The experimental table only covers some professions; vanilla falls back too.
-        return map != null ? map : VillagerTrades.TRADES.get(prof);
+        return map != null ? map : VillagerTrades.TRADES.get(profKey);
     }
 
     /** The raw listing array for a (profession, level), or null when the pool has none. */
     public static VillagerTrades.ItemListing[] listingsFor(ServerLevel level, VillagerProfession prof, int merchantLevel) {
-        Int2ObjectMap<VillagerTrades.ItemListing[]> map = tradeMap(level, prof);
+        ResourceKey<VillagerProfession> profKey = BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(prof).orElse(null);
+        if (profKey == null) return null;
+        Int2ObjectMap<VillagerTrades.ItemListing[]> map = tradeMap(level, profKey);
         return map == null ? null : map.get(merchantLevel);
     }
 
@@ -105,7 +108,8 @@ public final class OfferFactory {
 
     public static List<AvailableTrade> enumerate(ServerLevel level, Villager villager, int merchantLevel) {
         List<AvailableTrade> out = new ArrayList<>();
-        VillagerProfession prof = villager.getVillagerData().getProfession();
+        // 1.21.5: VillagerData.profession() returns Holder<VillagerProfession>; use .value() to get the instance.
+        VillagerProfession prof = villager.getVillagerData().profession().value();
         VillagerTrades.ItemListing[] listings = listingsFor(level, prof, merchantLevel);
         if (listings == null || listings.length == 0) {
             TradeOptimizer.LOGGER.warn("No trade listings for {} level {}", prof, merchantLevel);
@@ -150,7 +154,7 @@ public final class OfferFactory {
      * on. Counts raw templates, NOT the per-(enchantment × level) cards they expand into.
      */
     public static int countBookTemplates(ServerLevel level, Villager villager, int merchantLevel) {
-        VillagerProfession prof = villager.getVillagerData().getProfession();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
         VillagerTrades.ItemListing[] listings = listingsFor(level, prof, merchantLevel);
         if (listings == null) return 0;
 
@@ -178,7 +182,7 @@ public final class OfferFactory {
         }
         ListingRef ref = parseListingKey(key);
         if (ref == null) return Optional.empty();
-        VillagerProfession prof = villager.getVillagerData().getProfession();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
         VillagerTrades.ItemListing[] listings = listingsFor(level, prof, ref.level());
         if (listings == null || ref.index() < 0 || ref.index() >= listings.length) return Optional.empty();
         try {
@@ -228,7 +232,7 @@ public final class OfferFactory {
         if (parsed == null) return Optional.empty();
 
         HolderLookup.Provider registries = level.registryAccess();
-        VillagerProfession prof = villager.getVillagerData().getProfession();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
 
         // Find enchantment index + min level in the tradeable pool
         List<Holder<Enchantment>> tradeable = tradeableEnchantments(registries);
@@ -357,7 +361,8 @@ public final class OfferFactory {
                 continue;
             }
             for (EnchantmentInstance inst : avail) {
-                max.merge(inst.enchantment, inst.level, Math::max);
+                // 1.21.5: EnchantmentInstance is a record; use accessor methods instead of fields.
+                max.merge(inst.enchantment(), inst.level(), Math::max);
             }
         }
         return max;
@@ -492,7 +497,7 @@ public final class OfferFactory {
     /** Scan this villager's listing pools for a min-preview matching the predicate; return its cost/shape. */
     private static GearTemplateInfo findTemplate(ServerLevel level, Villager villager, int merchantLevel,
                                                  Predicate<MerchantOffer> match) {
-        VillagerProfession prof = villager.getVillagerData().getProfession();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
         List<Integer> candidateLevels = new ArrayList<>();
         if (merchantLevel >= 1 && merchantLevel <= MAX_MERCHANT_LEVEL) candidateLevels.add(merchantLevel);
         for (int lvl = 1; lvl <= MAX_MERCHANT_LEVEL; lvl++) {
@@ -627,7 +632,9 @@ public final class OfferFactory {
     }
 
     private static String professionId(Villager villager) {
-        return BuiltInRegistries.VILLAGER_PROFESSION.getKey(villager.getVillagerData().getProfession()).toString();
+        // 1.21.5: VillagerData.profession() returns Holder<VillagerProfession>; unwrap its registry key.
+        return BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(villager.getVillagerData().profession().value())
+                .map(k -> k.location().toString()).orElse("minecraft:none");
     }
 
     private static String enchId(Holder<Enchantment> ench) {

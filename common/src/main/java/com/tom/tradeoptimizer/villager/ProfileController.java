@@ -73,12 +73,18 @@ public final class ProfileController {
     public static boolean onInteract(ServerPlayer player, Villager villager) {
         ServerLevel level = player.serverLevel();
         VillagerData data = villager.getVillagerData();
-        int merchantLevel = data.getLevel();
-        VillagerProfession prof = data.getProfession();
-        String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(prof).toString();
+        // 1.21.5: VillagerData is a record; getLevel()/getProfession() → level()/profession().
+        int merchantLevel = data.level();
+        VillagerProfession prof = data.profession().value();
+        String profName = BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(prof)
+                .map(k -> k.location().toString()).orElse("minecraft:none");
 
         // Nitwits and unemployed villagers can't trade — bail.
-        if (prof == VillagerProfession.NITWIT || prof == VillagerProfession.NONE) {
+        // 1.21.5: VillagerProfession.NITWIT/NONE are ResourceKey constants; compare via registry key.
+        boolean isNitwit = BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(prof)
+                .map(k -> k.equals(VillagerProfession.NITWIT) || k.equals(VillagerProfession.NONE))
+                .orElse(false);
+        if (isNitwit) {
             return true;
         }
 
@@ -205,8 +211,9 @@ public final class ProfileController {
             player.sendSystemMessage(Component.literal("Villager not found."));
             return;
         }
-        VillagerProfession prof = villager.getVillagerData().getProfession();
-        String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(prof).toString();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
+        String profName = BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(prof)
+                .map(k -> k.location().toString()).orElse("minecraft:none");
 
         // The picks list arrives from the client and CANNOT be trusted. Without these
         // checks a modified client could submit any villager-trade id (or any synthetic
@@ -216,7 +223,7 @@ public final class ProfileController {
         // 1) The level must be one this villager has actually reached. The picker only
         //    ever opens for the villager's current level, so a submit for a higher level
         //    is a tampered packet.
-        int currentLevel = villager.getVillagerData().getLevel();
+        int currentLevel = villager.getVillagerData().level();
         if (level < 1 || level > currentLevel) {
             TradeOptimizer.LOGGER.warn("[submit] rejected out-of-range level {} for villager {} (at level {})",
                     level, villagerId, currentLevel);
@@ -250,7 +257,7 @@ public final class ProfileController {
         // How many picks this level legitimately allows = vanilla's per-level trade count (capped 2),
         // matching what sendPicker told the client. A tampered client could submit more cards (e.g.
         // five enchanted-gear variants from a single listing) to stuff the villager — trim to the cap.
-        int picksRequired = Math.max(1, perLevelTradeCount(sl, villager.getVillagerData().getProfession(), level));
+        int picksRequired = Math.max(1, perLevelTradeCount(sl, villager.getVillagerData().profession().value(), level));
         if (validatedPicks.size() > picksRequired) {
             TradeOptimizer.LOGGER.warn("[submit] {} picks exceed allowed {} for {} level {} — trimming",
                     validatedPicks.size(), picksRequired, profName, level);
@@ -350,7 +357,8 @@ public final class ProfileController {
         }
 
         VillagerData current = villager.getVillagerData();
-        villager.setVillagerData(current.setLevel(1));
+        // 1.21.5: VillagerData.setLevel() → withLevel()
+        villager.setVillagerData(current.withLevel(1));
         villager.setVillagerXp(0);
         Services.PLATFORM.setVillagerOffers(villager, new MerchantOffers());
 
@@ -395,7 +403,7 @@ public final class ProfileController {
      */
     static void importExistingOffers(ServerLevel level, Villager villager,
                                              VillagerProfile profile, MerchantOffers existing, int merchantLevel) {
-        VillagerProfession prof = villager.getVillagerData().getProfession();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
 
         int total = existing.size();
         int idx = 0;
@@ -475,7 +483,7 @@ public final class ProfileController {
         // (the pool's listing count, capped at 2). Used to be hardcoded 2 — fine while a single
         // listing showed one card, but enchanted gear / tipped arrows now expand one listing into
         // many cards, so demanding 2 picks there would hand out two trades where vanilla gives one.
-        int picksRequired = Math.max(1, perLevelTradeCount(level, villager.getVillagerData().getProfession(), merchantLevel));
+        int picksRequired = Math.max(1, perLevelTradeCount(level, villager.getVillagerData().profession().value(), merchantLevel));
 
         // No-choice fast path: when the expanded pool has no more cards than picks required there's
         // nothing to choose, so skip the picker and apply every card. A single listing that DID
@@ -543,7 +551,7 @@ public final class ProfileController {
      * Reputation modifiers (from curing or hero of the village) are applied if a player is provided.
      */
     private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile, ServerPlayer player) {
-        int currentLevel = villager.getVillagerData().getLevel();
+        int currentLevel = villager.getVillagerData().level();
 
         // Carry-over pool of the previously-live PICK offers, used to preserve use-counts. Legacy
         // offers are filtered out by identity: the profile re-adds those same instances, so reusing
