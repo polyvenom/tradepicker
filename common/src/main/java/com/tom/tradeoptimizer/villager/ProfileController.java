@@ -71,7 +71,7 @@ public final class ProfileController {
      * returns SUCCESS.
      */
     public static boolean onInteract(ServerPlayer player, Villager villager) {
-        ServerLevel level = player.serverLevel();
+        ServerLevel level = player.level();
         VillagerData data = villager.getVillagerData();
         // 1.21.5: VillagerData is a record; getLevel()/getProfession() → level()/profession().
         int merchantLevel = data.level();
@@ -203,7 +203,7 @@ public final class ProfileController {
     }
 
     public static void onPickerSubmit(ServerPlayer player, UUID villagerId, int level, List<TradeKey> picks) {
-        ServerLevel sl = player.serverLevel();
+        ServerLevel sl = player.level();
         TradeOptimizer.LOGGER.debug("[submit] villager={} level={} picks={}",
                 villagerId, level, picks);
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) {
@@ -317,7 +317,7 @@ public final class ProfileController {
     }
 
     public static void onReset(ServerPlayer player, UUID villagerId) {
-        ServerLevel sl = player.serverLevel();
+        ServerLevel sl = player.level();
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) return;
 
         // Reset is destructive (wipes XP, level, and locked-in trades). Lock it to the
@@ -461,7 +461,7 @@ public final class ProfileController {
     }
 
     private static void sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
-        ServerLevel level = player.serverLevel();
+        ServerLevel level = player.level();
 
         List<AvailableTrade> available;
         try {

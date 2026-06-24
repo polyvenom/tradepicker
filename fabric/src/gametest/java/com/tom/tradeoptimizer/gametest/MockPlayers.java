@@ -43,7 +43,7 @@ public final class MockPlayers {
      * checks, so the bare PlayerList.op() isn't deterministic enough for tests.
      */
     public static void op(ServerPlayer player) {
-        MinecraftServer server = player.serverLevel().getServer();
+        MinecraftServer server = player.level().getServer();
         server.getPlayerList().getOps().add(new ServerOpListEntry(player.getGameProfile(), 4, false));
     }
 }
