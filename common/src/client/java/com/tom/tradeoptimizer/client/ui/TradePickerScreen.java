@@ -10,6 +10,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
@@ -366,15 +367,15 @@ public final class TradePickerScreen extends Screen {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0) return super.mouseClicked(mouseX, mouseY, button);
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (event.button() != 0) return super.mouseClicked(event, doubleClick);
 
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
         int visible = visibleRows();
         int firstSlot = scrollRow * COLUMNS;
         int lastSlot = Math.min(filtered.size(), firstSlot + visible * COLUMNS);
 
-        double mx = mouseX, my = mouseY;
+        double mx = event.x(), my = event.y();
         for (int slotPos = firstSlot; slotPos < lastSlot; slotPos++) {
             int dataIdx = filtered.get(slotPos);
             int posInPage = slotPos - firstSlot;
@@ -387,7 +388,7 @@ public final class TradePickerScreen extends Screen {
                 return true;
             }
         }
-        return super.mouseClicked(mouseX, mouseY, button);
+        return super.mouseClicked(event, doubleClick);
     }
 
     @Override

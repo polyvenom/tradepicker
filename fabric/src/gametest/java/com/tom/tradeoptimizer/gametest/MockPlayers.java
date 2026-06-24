@@ -44,6 +44,6 @@ public final class MockPlayers {
      */
     public static void op(ServerPlayer player) {
         MinecraftServer server = player.level().getServer();
-        server.getPlayerList().getOps().add(new ServerOpListEntry(player.getGameProfile(), 4, false));
+        server.getPlayerList().getOps().add(new ServerOpListEntry(player.nameAndId(), 4, false));
     }
 }
