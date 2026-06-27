@@ -17,6 +17,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.entity.npc.VillagerType;
+import net.minecraft.world.inventory.MerchantMenu;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -146,6 +147,51 @@ public class OwnershipGateGameTest {
         helper.succeed();
     }
 
+    /**
+     * Reopening the merchant while a previous trade session is still live must NOT flash-close.
+     *
+     * Reproduces the 1.21.x "can pick but can't trade" bug: open the merchant once, then open it
+     * again WITHOUT closing the first session (the second open's openMenu would otherwise close the
+     * stale MerchantMenu, whose removed() nulls the villager's tradingPlayer right after we set it,
+     * so the new menu fails its next-tick stillValid() and self-closes after one frame). A second
+     * onPickerSubmit drives the exact open path with a stale container present; afterward the villager
+     * must still be trading with the player.
+     */
+    @GameTest(structure = "fabric-gametest-api-v1:empty")
+    public void reopenWithStaleSessionDoesNotFlash(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 1);
+        UUID villagerId = villager.getUUID();
+        ServerPlayer owner = MockPlayers.mock(helper);
+
+        // First open: submit picks -> applies offers + opens the merchant.
+        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        helper.assertTrue(villager.getTradingPlayer() == owner,
+                Component.literal("precondition: villager should be trading with the player after the first pick"));
+        helper.assertTrue(owner.containerMenu instanceof MerchantMenu,
+                Component.literal("precondition: the player should have a merchant menu open after the first pick"));
+
+        // Second open WITHOUT closing the first session — the stale-container case that used to flash.
+        // Direct guard: the bug nulled the villager's tradingPlayer during the reopen, so the new
+        // MerchantMenu failed its next-tick stillValid() (tradingPlayer == player). A non-null match
+        // here is what keeps the menu alive. (We assert tradingPlayer rather than stillValid() because
+        // 1.21.4+ folded a reach/distance check into MerchantMenu.stillValid that a headless mock
+        // player can't satisfy.) Proven red without the fix.
+        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        helper.assertTrue(villager.getTradingPlayer() == owner,
+                Component.literal("reopen must leave the villager trading with the player (tradingPlayer was nulled = the flash bug)"));
+        helper.assertTrue(owner.containerMenu instanceof MerchantMenu,
+                Component.literal("reopen must leave a merchant menu open for the player"));
+        helper.succeed();
+    }
+
+    /**
+     * With vanillaBookLimits enabled, a profession with NO book trades (farmer) is unaffected: the
+     * per-level book cap relaxes so the two non-book picks still go through (no softlock). The
+     * librarian book-cap path itself isn't headless-testable — the gametest server's experimental
+     * Trade Rebalance datapack returns null book previews, so 0 books enumerate — and is validated
+     * in the live game instead.
+     */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
