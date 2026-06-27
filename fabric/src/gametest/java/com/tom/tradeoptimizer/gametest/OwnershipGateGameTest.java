@@ -16,6 +16,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.entity.npc.VillagerType;
+import net.minecraft.world.inventory.MerchantMenu;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -179,6 +180,43 @@ public class OwnershipGateGameTest {
                 "reset must clear the villager's tradingPlayer (stale-session flash guard)");
         helper.assertTrue(owner.containerMenu == owner.inventoryMenu,
                 "reset must close the player's stale merchant container (stale-session flash guard)");
+        helper.succeed();
+    }
+
+    /**
+     * Reopening the merchant while a previous trade session is still live must NOT flash-close.
+     *
+     * This reproduces the 1.21.x "can pick but can't trade" bug: open the merchant once, then open it
+     * again WITHOUT closing the first session (the second open's openMenu would otherwise close the
+     * stale MerchantMenu, whose removed() nulls the villager's tradingPlayer right after we set it,
+     * so the new menu fails MerchantMenu.stillValid() next tick). A second onPickerSubmit drives the
+     * exact open path with a stale container present. After it, the villager must still be trading
+     * with the player and the live menu must validate.
+     */
+    @GameTest(template = "fabric-gametest-api-v1:empty")
+    public void reopenWithStaleSessionDoesNotFlash(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 1);
+        UUID villagerId = villager.getUUID();
+        ServerPlayer owner = MockPlayers.mock(helper);
+
+        // First open: submit picks -> applies offers + opens the merchant.
+        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        helper.assertTrue(villager.getTradingPlayer() == owner,
+                "precondition: villager should be trading with the player after the first pick");
+        helper.assertTrue(owner.containerMenu instanceof MerchantMenu,
+                "precondition: the player should have a merchant menu open after the first pick");
+
+        // Second open WITHOUT closing the first session — the stale-container case that used to
+        // flash. With the close-before-open teardown this stays valid; without it tradingPlayer
+        // would be nulled by the stale menu's removed() and stillValid() would be false.
+        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        helper.assertTrue(villager.getTradingPlayer() == owner,
+                "reopen must leave the villager trading with the player (tradingPlayer was nulled = the flash bug)");
+        helper.assertTrue(owner.containerMenu instanceof MerchantMenu,
+                "reopen must leave a merchant menu open");
+        helper.assertTrue(owner.containerMenu.stillValid(owner),
+                "reopened merchant menu must pass stillValid() — else it self-closes after one frame");
         helper.succeed();
     }
 
