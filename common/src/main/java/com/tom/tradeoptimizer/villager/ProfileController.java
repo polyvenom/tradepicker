@@ -139,8 +139,7 @@ public final class ProfileController {
                 // here was the source of the 1-frame / no-open bug since vanilla's
                 // mobInteract silently no-ops in our flow.
                 applyToVillager(level, villager, profile, player);
-                villager.setTradingPlayer(player);
-                villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+                openMerchant(villager, player, merchantLevel);
                 return false;
             }
             if (trulyFresh && existing != null && !existing.isEmpty()) {
@@ -172,12 +171,8 @@ public final class ProfileController {
             return false;
         }
 
-        // Has entries (picks or legacy) for the current level — open the merchant menu
-        // directly. Order matters: setTradingPlayer FIRST, then openTradingScreen.
-        // MerchantMenu.stillValid() returns (merchant.getTradingPlayer() == player). If
-        // tradingPlayer is null when vanilla validates the container on its next tick, it
-        // sends ClientboundContainerClosePacket and the menu disappears after 1 frame.
-        // That's exactly what `startTrading` does in vanilla, just spelled out here.
+        // Has entries (picks or legacy) for the current level — open the merchant menu directly
+        // via openMerchant (which handles the stale-session teardown, see that method).
         //
         // We do NOT rebuild the offers here. Regenerating them on every open reset each
         // trade's use-count, so picked trades restocked instantly and bypassed vanilla's
@@ -191,8 +186,7 @@ public final class ProfileController {
         } else {
             refreshSpecialPrices(villager, player);
         }
-        villager.setTradingPlayer(player);
-        villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+        openMerchant(villager, player, merchantLevel);
         return false;
     }
 
@@ -303,10 +297,9 @@ public final class ProfileController {
         applyToVillager(sl, villager, profile, player);
 
         // Auto-open the merchant right here so the user doesn't have to right-click
-        // again after confirming picks. Same setTradingPlayer + openTradingScreen
-        // pair we use in onInteract.
-        villager.setTradingPlayer(player);
-        villager.openTradingScreen(player, villager.getDisplayName(), level);
+        // again after confirming picks. Same open path (with stale-session teardown)
+        // we use in onInteract.
+        openMerchant(villager, player, level);
     }
 
     public static void onReset(ServerPlayer player, UUID villagerId) {
@@ -374,6 +367,33 @@ public final class ProfileController {
     // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Open the merchant menu for {@code player}, robust against a stale trade session.
+     *
+     * Closes whatever container the player still has open FIRST, then sets the trading player, then
+     * opens the merchant. The order matters because of how vanilla wires these together:
+     *
+     *   - {@code openTradingScreen} -> {@code ServerPlayer.openMenu} ALSO closes the current
+     *     container, but it does so AFTER we would have set the trading player.
+     *   - When that container is a leftover {@code MerchantMenu} for THIS villager, its
+     *     {@code removed()} calls {@code villager.setTradingPlayer(null)} — nulling the trading
+     *     player we just set, out from under the brand-new menu.
+     *   - {@code MerchantMenu.stillValid()} is {@code (merchant.getTradingPlayer() == player)}, so
+     *     on the next tick the new menu fails validation and the server closes it: the trade screen
+     *     flashes open then vanishes after a single frame ("can pick but can't trade").
+     *
+     * Tearing the stale session down up front means {@code openMenu} has nothing left to close, so
+     * the trading player we set below survives. Same teardown the reset path uses; doing it here
+     * makes every merchant-open site idempotent regardless of any lingering session.
+     */
+    private static void openMerchant(Villager villager, ServerPlayer player, int merchantLevel) {
+        if (player.containerMenu != player.inventoryMenu) {
+            player.closeContainer();
+        }
+        villager.setTradingPlayer(player);
+        villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+    }
 
     /**
      * Split a flat MerchantOffers list into per-level legacy buckets.
@@ -489,8 +509,7 @@ public final class ProfileController {
             state.update(profile);
 
             applyToVillager(level, villager, profile, player);
-            villager.setTradingPlayer(player);
-            villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+            openMerchant(villager, player, merchantLevel);
 
             TradeOptimizer.LOGGER.info("Auto-progressed {} level {}: {} option(s), no choice needed",
                     profile.profession(), merchantLevel, available.size());
