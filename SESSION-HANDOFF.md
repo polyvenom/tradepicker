@@ -8,6 +8,17 @@ Backport polish, **1.21.9-1.21.11 Fabric cluster only** (`backport/1.21.9`), unt
 user calls it perfect. Then remaining Fabric clusters in reverse chronological order,
 then the NeoForge pass. Feature version now **1.3.1**.
 
+## 2026-07-04 evening update — ALL FABRIC PORTS DONE
+
+- Sort fix (plain trades before enchanted cards) added after playtest feedback: `e2555ee`.
+- 1.3.1 cherry-picked to every Fabric line: 1.21.6, 1.21.5, 1.21.4, 1.21.2, 1.21.1,
+  26.1.x, master(26.2). All gametests green, all TP launcher profiles + the main
+  .minecraft (26.2) updated. Full table: docs/1.3.1-issue7-porting.md "Porting log".
+- Asana Backport QA task has the same status comment (write permission granted 2026-07-04).
+- NeoForge pass ON HOLD (user call — low usership).
+- Awaiting: user playtest of sort fix on 1.21.9 + spot-checks of other clusters, then
+  push + v1.3.1 GitHub release on his go.
+
 ## State of backport/1.21.9
 
 - Flash/close-on-reopen bug: FIXED earlier (`9a07cd0`), user-playtested OK.
