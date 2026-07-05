@@ -1,6 +1,7 @@
 package com.tom.tradeoptimizer.network;
 
 import com.tom.tradeoptimizer.trade.AvailableTrade;
+import com.tom.tradeoptimizer.trade.TradeKey;
 import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
@@ -21,6 +22,10 @@ import java.util.UUID;
  *                     vanillaBookLimits is off (no effective limit); when on it's vanilla's
  *                     per-level book-trade count (usually 1), so the rest must be non-book trades.
  *  available        — every possible trade for (profession, level) with min-cost preview
+ *  ownedKeys        — keys within {@code available} that this villager ALREADY sells (picked at
+ *                     an earlier level, or matching a legacy/imported offer). The client marks
+ *                     those cards so the player doesn't re-pick a trade they have (issue #7).
+ *                     Empty when the server already filtered them out (hidePickedTrades on).
  */
 public record OpenPickerS2C(
         UUID villagerId,
@@ -28,7 +33,8 @@ public record OpenPickerS2C(
         int level,
         int picksRequired,
         int maxBookPicks,
-        List<AvailableTrade> available
+        List<AvailableTrade> available,
+        List<TradeKey> ownedKeys
 ) implements CustomPacketPayload {
 
     /**
@@ -48,6 +54,8 @@ public record OpenPickerS2C(
                 buf.writeVarInt(p.maxBookPicks);
                 buf.writeVarInt(p.available.size());
                 for (AvailableTrade t : p.available) AvailableTrade.STREAM_CODEC.encode(buf, t);
+                buf.writeVarInt(p.ownedKeys.size());
+                for (TradeKey k : p.ownedKeys) TradeKey.STREAM_CODEC.encode(buf, k);
             },
             buf -> {
                 UUID id = buf.readUUID();
@@ -61,7 +69,13 @@ public record OpenPickerS2C(
                 }
                 List<AvailableTrade> list = new ArrayList<>(n);
                 for (int i = 0; i < n; i++) list.add(AvailableTrade.STREAM_CODEC.decode(buf));
-                return new OpenPickerS2C(id, prof, level, required, maxBookPicks, list);
+                int owned = buf.readVarInt();
+                if (owned < 0 || owned > MAX_TRADES) {
+                    throw new DecoderException("OpenPickerS2C owned-key count out of range: " + owned);
+                }
+                List<TradeKey> ownedKeys = new ArrayList<>(owned);
+                for (int i = 0; i < owned; i++) ownedKeys.add(TradeKey.STREAM_CODEC.decode(buf));
+                return new OpenPickerS2C(id, prof, level, required, maxBookPicks, list, ownedKeys);
             }
     );
 
