@@ -127,18 +127,22 @@ public final class TradePickerScreen extends Screen {
     }
 
     /**
-     * Default sort by type (issue #7): cards grouped by result item, then by their label's base
-     * name (e.g. the enchantment), then by numeric level, then by pool order as the stable tie.
-     * Only the DISPLAY order changes — selections and network picks still use pool indices.
+     * Default sort by type (issue #7): plain trades first, enchanted cards (books + enchanted
+     * gear — the big expanded walls) after them; within each group by result item, then by the
+     * label's base name (e.g. the enchantment), then by numeric level, then by pool order as
+     * the stable tie. Only the DISPLAY order changes — selections and network picks still use
+     * pool indices.
      */
     private void rebuildSortOrder() {
         sortedOrder.clear();
         for (int i = 0; i < data.available().size(); i++) sortedOrder.add(i);
+        List<Boolean> enchantedGroup = new ArrayList<>(data.available().size());
         List<String> itemIds = new ArrayList<>(data.available().size());
         List<String> baseNames = new ArrayList<>(data.available().size());
         List<Integer> levels = new ArrayList<>(data.available().size());
         for (int i = 0; i < data.available().size(); i++) {
             ItemStack result = data.available().get(i).previewOffer().getResult();
+            enchantedGroup.add(result.is(Items.ENCHANTED_BOOK) || !result.getEnchantments().isEmpty());
             itemIds.add(BuiltInRegistries.ITEM.getKey(result.getItem()).toString());
             String label = cardLabels.get(i);
             // Gear labels can end in " +N" (bonus enchant count) — not part of the name.
@@ -152,7 +156,9 @@ public final class TradePickerScreen extends Screen {
             levels.add(Math.max(lvl, 1));
         }
         sortedOrder.sort((a, b) -> {
-            int c = itemIds.get(a).compareTo(itemIds.get(b));
+            int c = Boolean.compare(enchantedGroup.get(a), enchantedGroup.get(b));
+            if (c != 0) return c;
+            c = itemIds.get(a).compareTo(itemIds.get(b));
             if (c != 0) return c;
             c = baseNames.get(a).compareTo(baseNames.get(b));
             if (c != 0) return c;
