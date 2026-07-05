@@ -60,25 +60,33 @@ public class TradePickerConfigScreen extends Screen {
                 .onValueChange((cb, v) -> TradeOptimizerConfig.get().setVanillaBookLimits(v))
                 .build());
 
+        this.addRenderableWidget(Checkbox.builder(
+                        Component.translatable("tradeoptimizer.config.hidePickedTrades"), this.font)
+                .pos(leftX, 82)
+                .selected(TradeOptimizerConfig.get().hidePickedTrades())
+                .tooltip(Tooltip.create(Component.translatable("tradeoptimizer.config.hidePickedTrades.tip")))
+                .onValueChange((cb, v) -> TradeOptimizerConfig.get().setHidePickedTrades(v))
+                .build());
+
         this.addRenderableWidget(Button.builder(gearModeLabel(), btn -> {
                     GearEnchantMode next = TradeOptimizerConfig.get().gearEnchantMode() == GearEnchantMode.SINGLE
                             ? GearEnchantMode.HEADLINE : GearEnchantMode.SINGLE;
                     TradeOptimizerConfig.get().setGearEnchantMode(next);
                     btn.setMessage(gearModeLabel());
                 })
-                .bounds(leftX, 84, CHECKBOX_W, BUTTON_H)
+                .bounds(leftX, 106, CHECKBOX_W, BUTTON_H)
                 .tooltip(Tooltip.create(Component.translatable("tradeoptimizer.config.gearMode.tip")))
                 .build());
 
         this.addRenderableWidget(new StringWidget(
-                leftX, 112, CHECKBOX_W, 12,
+                leftX, 134, CHECKBOX_W, 12,
                 Component.translatable("tradeoptimizer.config.costScaling"), this.font));
         int colW = CHECKBOX_W / 2;
         for (int i = 0; i < ENCHANT_PROFESSIONS.length; i++) {
             String profId = ENCHANT_PROFESSIONS[i];
             String profPath = profId.substring(profId.indexOf(':') + 1);
             int x = leftX + (i % 2) * colW;
-            int y = 128 + (i / 2) * 22;
+            int y = 150 + (i / 2) * 22;
             this.addRenderableWidget(Checkbox.builder(
                             Component.translatable("entity.minecraft.villager." + profPath), this.font)
                     .pos(x, y)
