@@ -12,6 +12,7 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -54,7 +55,13 @@ public final class TradePickerScreen extends Screen {
     private final List<String> cardLabels = new ArrayList<>();
     private final List<String> cardTooltips = new ArrayList<>();
 
-    /** Indices into data.available() filtered by current search text. */
+    /** Cards this villager already sells (earlier-level picks / legacy) — marked, still pickable. */
+    private final Set<Integer> ownedIndices = new HashSet<>();
+
+    /** All indices into data.available() in display order: sorted by type (issue #7). */
+    private final List<Integer> sortedOrder = new ArrayList<>();
+
+    /** Indices into data.available() filtered by current search text, in display order. */
     private final List<Integer> filtered = new ArrayList<>();
 
     private EditBox searchBox;
@@ -76,10 +83,17 @@ public final class TradePickerScreen extends Screen {
         // Pre-compute display data once.
         cardLabels.clear();
         cardTooltips.clear();
-        for (AvailableTrade trade : data.available()) {
+        ownedIndices.clear();
+        Set<ResourceLocation> ownedIds = new HashSet<>();
+        for (var key : data.ownedKeys()) ownedIds.add(key.id());
+        for (int i = 0; i < data.available().size(); i++) {
+            AvailableTrade trade = data.available().get(i);
+            boolean owned = ownedIds.contains(trade.key().id());
+            if (owned) ownedIndices.add(i);
             cardLabels.add(buildCardLabel(trade));
-            cardTooltips.add(buildTooltip(trade));
+            cardTooltips.add(buildTooltip(trade) + (owned ? "  (already on this villager)" : ""));
         }
+        rebuildSortOrder();
         rebuildFilter("");
 
         titleText = String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
@@ -112,14 +126,66 @@ public final class TradePickerScreen extends Screen {
                 .build());
     }
 
+    /**
+     * Default sort by type (issue #7): cards grouped by result item, then by their label's base
+     * name (e.g. the enchantment), then by numeric level, then by pool order as the stable tie.
+     * Only the DISPLAY order changes — selections and network picks still use pool indices.
+     */
+    private void rebuildSortOrder() {
+        sortedOrder.clear();
+        for (int i = 0; i < data.available().size(); i++) sortedOrder.add(i);
+        List<String> itemIds = new ArrayList<>(data.available().size());
+        List<String> baseNames = new ArrayList<>(data.available().size());
+        List<Integer> levels = new ArrayList<>(data.available().size());
+        for (int i = 0; i < data.available().size(); i++) {
+            ItemStack result = data.available().get(i).previewOffer().getResult();
+            itemIds.add(BuiltInRegistries.ITEM.getKey(result.getItem()).toString());
+            String label = cardLabels.get(i);
+            // Gear labels can end in " +N" (bonus enchant count) — not part of the name.
+            int plus = label.lastIndexOf(" +");
+            if (plus > 0) label = label.substring(0, plus);
+            // A trailing roman/arabic numeral is the level; the rest is the base name.
+            int lastSpace = label.lastIndexOf(' ');
+            int lvl = lastSpace > 0 ? parseLevel(label.substring(lastSpace + 1)) : 0;
+            if (lvl > 0) label = label.substring(0, lastSpace);
+            baseNames.add(label);
+            levels.add(Math.max(lvl, 1));
+        }
+        sortedOrder.sort((a, b) -> {
+            int c = itemIds.get(a).compareTo(itemIds.get(b));
+            if (c != 0) return c;
+            c = baseNames.get(a).compareTo(baseNames.get(b));
+            if (c != 0) return c;
+            c = Integer.compare(levels.get(a), levels.get(b));
+            if (c != 0) return c;
+            return Integer.compare(a, b);
+        });
+    }
+
+    private static int parseLevel(String token) {
+        switch (token) {
+            case "I": return 1;
+            case "II": return 2;
+            case "III": return 3;
+            case "IV": return 4;
+            case "V": return 5;
+            default:
+                try {
+                    return Integer.parseInt(token);
+                } catch (NumberFormatException e) {
+                    return 0;
+                }
+        }
+    }
+
     private void rebuildFilter(String query) {
         filtered.clear();
         if (query == null || query.isBlank()) {
-            for (int i = 0; i < data.available().size(); i++) filtered.add(i);
+            filtered.addAll(sortedOrder);
             return;
         }
         String q = query.toLowerCase(Locale.ROOT).trim();
-        for (int i = 0; i < cardTooltips.size(); i++) {
+        for (int i : sortedOrder) {
             if (cardTooltips.get(i).toLowerCase(Locale.ROOT).contains(q)) {
                 filtered.add(i);
             }
@@ -199,11 +265,13 @@ public final class TradePickerScreen extends Screen {
                              int x, int y, int idx, int mouseX, int mouseY) {
         boolean selected = selectedIndices.contains(idx);
         boolean blocked = isBookBlocked(idx);
+        boolean owned = ownedIndices.contains(idx);
         boolean hovered = mouseX >= x && mouseX < x + CARD_WIDTH && mouseY >= y && mouseY < y + CARD_HEIGHT;
 
-        int bg = selected ? 0xFF55AA55 : blocked ? 0xFF2A2A2A : hovered ? 0xFF606060 : 0xFF404040;
+        int bg = selected ? 0xFF55AA55 : blocked ? 0xFF2A2A2A : owned ? 0xFF303830
+                : hovered ? 0xFF606060 : 0xFF404040;
         g.fill(x, y, x + CARD_WIDTH, y + CARD_HEIGHT, bg);
-        int border = selected ? 0xFFAAFFAA : 0xFF808080;
+        int border = selected ? 0xFFAAFFAA : owned ? 0xFF60A060 : 0xFF808080;
         g.fill(x, y, x + CARD_WIDTH, y + 1, border);
         g.fill(x, y + CARD_HEIGHT - 1, x + CARD_WIDTH, y + CARD_HEIGHT, border);
         g.fill(x, y, x + 1, y + CARD_HEIGHT, border);
@@ -230,11 +298,19 @@ public final class TradePickerScreen extends Screen {
         g.renderItem(r, afterA, iy);
         g.renderItemDecorations(this.font, r, afterA, iy);
 
+        int rightPad = LABEL_RIGHT_PAD;
+        if (owned) {
+            // Check mark at the card's right edge: this trade is already on the villager.
+            g.drawString(this.font, "✔", x + CARD_WIDTH - 12, y + 9, 0xFF55CC55);
+            rightPad += 12;
+        }
+
         if (!enchLabel.isEmpty()) {
             int labelX = afterA + 18;
-            int maxWidth = (x + CARD_WIDTH - LABEL_RIGHT_PAD) - labelX;
+            int maxWidth = (x + CARD_WIDTH - rightPad) - labelX;
             String fitted = fitText(enchLabel, maxWidth);
-            g.drawString(this.font, fitted, labelX, y + 9, blocked ? 0xFF707070 : 0xFFFFFFAA);
+            g.drawString(this.font, fitted, labelX, y + 9,
+                    blocked ? 0xFF707070 : owned ? 0xFFB0B090 : 0xFFFFFFAA);
         }
 
         return hovered;

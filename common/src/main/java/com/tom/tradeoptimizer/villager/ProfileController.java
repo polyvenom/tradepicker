@@ -262,7 +262,13 @@ public final class ProfileController {
         //    selections, but a tampered client could submit more — reject here. Uses the same
         //    bookPickCap as sendPicker (incl. the no-softlock relaxation), so a legitimate
         //    submission is never rejected. No-op when the toggle is off (cap == picksRequired).
-        int bookCap = bookPickCap(sl, villager, level, available, picksRequired);
+        // Mirror sendPicker's hidePickedTrades filtering so this cap is computed from the same
+        // card list the client actually saw — otherwise a filtered pool with few non-book cards
+        // could produce a laxer client cap than the full-pool cap and reject a legitimate submit.
+        VillagerProfile profileForCap = VillagerProfileState.get(sl).get(villagerId);
+        List<AvailableTrade> shownToClient = profileForCap == null ? available
+                : effectiveAvailable(available, ownedTradeKeys(profileForCap, available), picksRequired);
+        int bookCap = bookPickCap(sl, villager, level, shownToClient, picksRequired);
         int bookPicks = 0;
         for (TradeKey k : validatedPicks) {
             if (OfferFactory.isBookKey(k)) bookPicks++;
@@ -480,6 +486,56 @@ public final class ProfileController {
         return Math.min(cap, picksRequired);
     }
 
+    /**
+     * The TradeKeys within {@code available} that this villager already sells: any key the
+     * profile has picked at ANY level, plus any card whose preview result matches a legacy
+     * (imported vanilla) offer's result. Synthetic book/gear/arrow keys are merchant-level
+     * independent, so an earlier-level book pick matches the identical card at this level;
+     * flat listing keys are level-scoped and never collide across levels (issue #7).
+     */
+    static List<TradeKey> ownedTradeKeys(VillagerProfile profile, List<AvailableTrade> available) {
+        Set<ResourceLocation> pickedIds = new HashSet<>();
+        for (List<TradeKey> picks : profile.picks().values()) {
+            for (TradeKey k : picks) pickedIds.add(k.id());
+        }
+        List<MerchantOffer> legacyOffers = new ArrayList<>();
+        for (List<MerchantOffer> bucket : profile.legacy().values()) legacyOffers.addAll(bucket);
+
+        List<TradeKey> owned = new ArrayList<>();
+        for (AvailableTrade t : available) {
+            boolean isOwned = pickedIds.contains(t.key().id());
+            if (!isOwned) {
+                for (MerchantOffer legacy : legacyOffers) {
+                    if (ItemStack.matches(legacy.getResult(), t.previewOffer().getResult())) {
+                        isOwned = true;
+                        break;
+                    }
+                }
+            }
+            if (isOwned) owned.add(t.key());
+        }
+        return owned;
+    }
+
+    /**
+     * The card list the picker actually shows. With hidePickedTrades OFF (default) this is the
+     * full pool — owned cards are only marked client-side. With it ON, owned cards are removed,
+     * UNLESS that would leave fewer cards than the level needs picked (then the full pool is
+     * kept so the level can still be filled). Returns {@code available} (same instance) when
+     * nothing was filtered, so callers can detect filtering by identity.
+     */
+    static List<AvailableTrade> effectiveAvailable(List<AvailableTrade> available,
+                                                   List<TradeKey> ownedKeys, int picksRequired) {
+        if (!TradeOptimizerConfig.get().hidePickedTrades() || ownedKeys.isEmpty()) return available;
+        Set<ResourceLocation> hide = new HashSet<>();
+        for (TradeKey k : ownedKeys) hide.add(k.id());
+        List<AvailableTrade> out = new ArrayList<>();
+        for (AvailableTrade t : available) {
+            if (!hide.contains(t.key().id())) out.add(t);
+        }
+        return out.size() >= picksRequired ? out : available;
+    }
+
     private static void sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
         ServerLevel level = player.level();
 
@@ -527,7 +583,14 @@ public final class ProfileController {
         TradeOptimizer.LOGGER.info("Picker for {} level {}: {} trade options, pick {}",
                 profile.profession(), merchantLevel, available.size(), picksRequired);
 
-        int maxBookPicks = bookPickCap(level, villager, merchantLevel, available, picksRequired);
+        // Issue #7: trades already on this villager (earlier-level picks, imported legacy offers)
+        // are either marked (default) or removed outright (hidePickedTrades) so the player never
+        // has to remember what they already chose.
+        List<TradeKey> ownedKeys = ownedTradeKeys(profile, available);
+        List<AvailableTrade> shown = effectiveAvailable(available, ownedKeys, picksRequired);
+        boolean hidOwned = shown != available;
+
+        int maxBookPicks = bookPickCap(level, villager, merchantLevel, shown, picksRequired);
 
         OpenPickerS2C payload = new OpenPickerS2C(
                 villager.getUUID(),
@@ -535,7 +598,8 @@ public final class ProfileController {
                 merchantLevel,
                 picksRequired,
                 maxBookPicks,
-                available
+                shown,
+                hidOwned ? List.of() : ownedKeys
         );
         if (!Services.NETWORK.canSendOpenPicker(player)) {
             TradeOptimizer.LOGGER.warn("Client can't receive OPEN_PICKER (mod missing on client?)");
