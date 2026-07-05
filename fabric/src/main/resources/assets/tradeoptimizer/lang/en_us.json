@@ -9,6 +9,8 @@
   "tradeoptimizer.config.vanillaPricing.tip": "OFF (default): every trade shows the lowest possible vanilla price.\nON: trades use vanilla's randomized price range. Prices are seeded per villager and trade, so the picker preview always matches what you pay.\n\nNote: this setting is server-side. On a dedicated server it must be changed in config/tradeoptimizer.json on the server directly.",
   "tradeoptimizer.config.vanillaBookLimits": "Vanilla Book Limits",
   "tradeoptimizer.config.vanillaBookLimits.tip": "OFF (default): you can choose up to two enchanted books at every villager level.\nON: the number of book picks per level is capped to how many book trades vanilla actually offers there (usually one), so the rest of your picks must be non-book trades — a vanilla-accurate librarian economy.\n\nNote: this setting is server-side. On a dedicated server it must be changed in config/tradeoptimizer.json on the server directly.",
+  "tradeoptimizer.config.hidePickedTrades": "Hide Already-Picked Trades",
+  "tradeoptimizer.config.hidePickedTrades.tip": "OFF (default): trades this villager already sells still show in the picker, marked with a green check.\nON: they are hidden from the picker entirely, so you only ever see trades you don't have yet.\n\nNote: this setting is server-side. On a dedicated server it must be changed in config/tradeoptimizer.json on the server directly.",
   "tradeoptimizer.config.gearMode": "Gear Enchants: %s",
   "tradeoptimizer.config.gearMode.single": "Single",
   "tradeoptimizer.config.gearMode.headline": "Headline",

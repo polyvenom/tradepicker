@@ -60,6 +60,14 @@ public class TradePickerConfigScreen extends Screen {
                 .onValueChange((cb, v) -> TradeOptimizerConfig.get().setVanillaBookLimits(v))
                 .build());
 
+        this.addRenderableWidget(Checkbox.builder(
+                        Component.translatable("tradeoptimizer.config.hidePickedTrades"), this.font)
+                .pos(leftX, 82)
+                .selected(TradeOptimizerConfig.get().hidePickedTrades())
+                .tooltip(Tooltip.create(Component.translatable("tradeoptimizer.config.hidePickedTrades.tip")))
+                .onValueChange((cb, v) -> TradeOptimizerConfig.get().setHidePickedTrades(v))
+                .build());
+
         // Gear-enchant mode: cycles Single <-> Headline. (Combo builder ships in a later update.)
         this.addRenderableWidget(Button.builder(gearModeLabel(), btn -> {
                     GearEnchantMode next = TradeOptimizerConfig.get().gearEnchantMode() == GearEnchantMode.SINGLE
@@ -67,13 +75,13 @@ public class TradePickerConfigScreen extends Screen {
                     TradeOptimizerConfig.get().setGearEnchantMode(next);
                     btn.setMessage(gearModeLabel());
                 })
-                .bounds(leftX, 84, CHECKBOX_W, BUTTON_H)
+                .bounds(leftX, 106, CHECKBOX_W, BUTTON_H)
                 .tooltip(Tooltip.create(Component.translatable("tradeoptimizer.config.gearMode.tip")))
                 .build());
 
         // Per-profession cost scaling for picked enchanted trades.
         this.addRenderableWidget(new StringWidget(
-                leftX, 112, CHECKBOX_W, 12,
+                leftX, 134, CHECKBOX_W, 12,
                 Component.translatable("tradeoptimizer.config.costScaling"), this.font));
         int colW = CHECKBOX_W / 2;
         for (int i = 0; i < ENCHANT_PROFESSIONS.length; i++) {
@@ -82,7 +90,7 @@ public class TradePickerConfigScreen extends Screen {
             int col = i % 2;
             int row = i / 2;
             int x = leftX + col * colW;
-            int y = 128 + row * 22;
+            int y = 150 + row * 22;
             this.addRenderableWidget(Checkbox.builder(
                             Component.translatable("entity.minecraft.villager." + profPath), this.font)
                     .pos(x, y)
