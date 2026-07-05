@@ -478,7 +478,7 @@ public final class ProfileController {
      * flat listing keys are level-scoped and never collide across levels (issue #7).
      */
     static List<TradeKey> ownedTradeKeys(VillagerProfile profile, List<AvailableTrade> available) {
-        Set<ResourceLocation> pickedIds = new HashSet<>();
+        Set<Identifier> pickedIds = new HashSet<>();
         for (List<TradeKey> picks : profile.picks().values()) {
             for (TradeKey k : picks) pickedIds.add(k.id());
         }
@@ -511,7 +511,7 @@ public final class ProfileController {
     static List<AvailableTrade> effectiveAvailable(List<AvailableTrade> available,
                                                    List<TradeKey> ownedKeys, int picksRequired) {
         if (!TradeOptimizerConfig.get().hidePickedTrades() || ownedKeys.isEmpty()) return available;
-        Set<ResourceLocation> hide = new HashSet<>();
+        Set<Identifier> hide = new HashSet<>();
         for (TradeKey k : ownedKeys) hide.add(k.id());
         List<AvailableTrade> out = new ArrayList<>();
         for (AvailableTrade t : available) {

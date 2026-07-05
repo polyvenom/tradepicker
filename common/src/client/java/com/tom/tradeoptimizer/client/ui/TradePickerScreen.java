@@ -85,7 +85,7 @@ public final class TradePickerScreen extends Screen {
         cardLabels.clear();
         cardTooltips.clear();
         ownedIndices.clear();
-        Set<ResourceLocation> ownedIds = new HashSet<>();
+        Set<Identifier> ownedIds = new HashSet<>();
         for (var key : data.ownedKeys()) ownedIds.add(key.id());
         for (int i = 0; i < data.available().size(); i++) {
             AvailableTrade trade = data.available().get(i);
