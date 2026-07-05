@@ -64,6 +64,24 @@ public final class TradeOptimizerConfig {
     }
 
     /**
+     * {@code false} (default): trades already on this villager (picked at an earlier level) still
+     * appear in the picker, marked with a check so you can tell them apart. {@code true}: they are
+     * removed from the picker list entirely — you only ever see trades you don't have yet
+     * (issue #7). The filter never shrinks the list below the number of picks the level requires,
+     * so a level can always be filled.
+     */
+    private boolean hidePickedTrades = false;
+
+    public boolean hidePickedTrades() {
+        return hidePickedTrades;
+    }
+
+    public void setHidePickedTrades(boolean value) {
+        this.hidePickedTrades = value;
+        save();
+    }
+
+    /**
      * How enchanted GEAR trades (sword, bow, armor, tools, fishing rod — anything that isn't an
      * enchanted book) are turned into pickable cards. Books are unaffected.
      *
