@@ -19,6 +19,14 @@ technical substance, drop fluff.
 4. **Don't over-engineer.** Personal-use mod with a small audience. Smallest correct diff wins.
 5. **He can't run builds himself for releases you promise** — if something must be built,
    built it yourself and verify before telling him it's ready.
+6. **Never push to GitHub without his explicit OK.** Local commits are fine and
+   encouraged; `git push`, new remote branches, tags, and releases all wait for
+   permission. Same for Asana writes — read freely, write only when asked.
+7. **After every build meant for playtest, deploy the jar** into the matching launcher
+   profile (`TP <ver>` profiles, gameDir `C:\Users\tomde\projects\tradepicker-playtest\mc<ver>\mods`) —
+   remove the old tradeoptimizer jar, copy the new one. He tests from the launcher; a jar
+   left in `fabric/build/libs` is invisible to him. Jar may be file-locked while the game
+   runs — wait for game close, then swap.
 
 ## Repo shape
 

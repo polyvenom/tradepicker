@@ -29,6 +29,13 @@ then the NeoForge pass. Feature version now **1.3.1**.
    loader+MC version. User handles Modrinth.
 5. Reply on GitHub issue #7 once shipped (as polyvenom, plain language, no AI mention).
 
+## Playtest deploy state
+
+- TP 1.21.9 launcher profile (`C:\Users\tomde\projects\tradepicker-playtest\mc1.21.9\mods`)
+  still had the 1.3.0 jar during the user's first 1.3.1 playtest attempt — that's why no
+  sorting appeared. Background watcher swaps in 1.3.1 as soon as the game closes
+  (jar is file-locked while running). Verify the swap before the next playtest report.
+
 ## Blockers / notes
 
 - Asana connector unauthorized in this session — project board not updated.
