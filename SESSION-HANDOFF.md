@@ -8,6 +8,11 @@ Backport polish, **1.21.9-1.21.11 Fabric cluster only** (`backport/1.21.9`), unt
 user calls it perfect. Then remaining Fabric clusters in reverse chronological order,
 then the NeoForge pass. Feature version now **1.3.1**.
 
+## 2026-07-04 night — v1.3.1 RELEASED
+- Playtests PASSED (1.21.9 + 26.2). Pushed master + backport/1.21.9, tagged v1.3.1,
+  GitHub release live with 26.2 jar + 1.21.9-11 jar. Modrinth = user.
+- Still local: backport/1.21.6/.5/.4/.2/.1 (playtest pending, ship later), NeoForge on hold.
+
 ## 2026-07-04 evening update — ALL FABRIC PORTS DONE
 
 - Sort fix (plain trades before enchanted cards) added after playtest feedback: `e2555ee`.
