@@ -1,17 +1,24 @@
 # Session handoff — live state
 
-_Last update: 2026-07-04 (Fable 5 session)._ Read CLAUDE.md first for standing rules.
+_Last update: 2026-07-06 (Sonnet 5 session)._ Read CLAUDE.md first for standing rules.
 
 ## Current focus
 
-Backport polish, **1.21.9-1.21.11 Fabric cluster only** (`backport/1.21.9`), until the
-user calls it perfect. Then remaining Fabric clusters in reverse chronological order,
-then the NeoForge pass. Feature version now **1.3.1**.
+All Fabric clusters for 1.3.1 are shipped. Remaining work: NeoForge pass (on hold,
+user call, low usership), then user's own Modrinth upload.
+
+## 2026-07-06 — ALL FABRIC BACKPORTS SHIPPED
+- User confirmed playtesting complete (all clusters passed).
+- Pushed backport/1.21.1, 1.21.2, 1.21.4, 1.21.5, 1.21.6 to origin (previously local-only).
+- Built Fabric jars for all 5 clusters, uploaded to the existing v1.3.1 GitHub release
+  alongside the already-live 26.2/26.1/1.21.9 jars — release now has all 8 Fabric jars.
+- Updated release notes with the full download table (all 8 version ranges).
+- User handles Modrinth upload from here.
 
 ## 2026-07-04 night — v1.3.1 RELEASED
 - Playtests PASSED (1.21.9 + 26.2). Pushed master + backport/1.21.9, tagged v1.3.1,
   GitHub release live with 26.2 jar + 1.21.9-11 jar. Modrinth = user.
-- Still local: backport/1.21.6/.5/.4/.2/.1 (playtest pending, ship later), NeoForge on hold.
+- Backport/1.21.6/.5/.4/.2/.1: playtest passed 2026-07-06, pushed + jars shipped (see above).
 
 ## 2026-07-04 evening update — ALL FABRIC PORTS DONE
 
@@ -36,14 +43,9 @@ then the NeoForge pass. Feature version now **1.3.1**.
 
 ## Next steps (in order)
 
-1. User playtests 1.3.1 on a 1.21.9 instance (picker marks, hide toggle via ModMenu
-   settings, sort order, normal trading regression).
-2. Fix anything the playtest surfaces; re-run gametests.
-3. When cluster declared perfect: cherry-pick `f505538` to `backport/1.21.6`
-   per `docs/1.3.1-issue7-porting.md`, and continue down the cluster order.
-4. Release packaging (all clusters done): one v1.3.1 GitHub release, jars named per
-   loader+MC version. User handles Modrinth.
-5. Reply on GitHub issue #7 once shipped (as polyvenom, plain language, no AI mention).
+1. Reply on GitHub issue #7 now that it's shipped (as polyvenom, plain language, no AI mention).
+2. User uploads all 8 Fabric jars to Modrinth.
+3. NeoForge pass, if/when user decides to revisit (currently on hold, low usership).
 
 ## Playtest deploy state
 
@@ -54,7 +56,7 @@ then the NeoForge pass. Feature version now **1.3.1**.
 
 ## Blockers / notes
 
-- Asana connector unauthorized in this session — project board not updated.
-- Local commits on backport branches are NOT pushed (only master + two feature branches
-  have remotes). Push policy: ask user before creating new remote branches.
-- 1.21.9 jar after build: `fabric/build/libs/tradeoptimizer-fabric-1.3.1+mc1.21.9.jar`.
+- Asana connector unauthorized in this session (2026-07-06) — project board not updated.
+  Same status as 2026-07-04; still needs manual auth before Claude can read/write it.
+- All backport branches (1.21.1 through 1.21.9, 26.1.x) are now pushed to origin.
+- Jars after build land in `fabric/build/libs/tradeoptimizer-fabric-1.3.1+mc<version>.jar`.
