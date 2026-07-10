@@ -3,6 +3,7 @@ package com.tom.tradeoptimizer.villager;
 import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.api.TradePickerApi;
 import com.tom.tradeoptimizer.api.VillagerInteractionHandler;
+import com.tom.tradeoptimizer.compat.VersionCompat;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.platform.Services;
@@ -48,9 +49,10 @@ public final class ProfileController {
     private ProfileController() {}
 
     private static boolean isOp(ServerPlayer player) {
-        // Integer permission level 2 = the /op command threshold (1.21.1's permission API;
-        // the named PermissionLevel constants only exist on the 26.x line).
-        return player.hasPermissions(2);
+        // Permission level 2 = the /op cheat-command threshold. 1.21.9/1.21.10 use the integer
+        // hasPermissions(int); 1.21.11 replaced it with the PermissionSet/PermissionLevel model.
+        // VersionCompat bridges both so this one jar covers the whole 1.21.9-1.21.11 cluster.
+        return VersionCompat.hasPermissionLevel(player, 2);
     }
 
     /**

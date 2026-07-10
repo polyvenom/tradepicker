@@ -3,6 +3,7 @@ package com.tom.tradeoptimizer.trade;
 import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig.GearEnchantMode;
+import com.tom.tradeoptimizer.compat.VersionCompat;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import net.minecraft.core.Holder;
 import net.minecraft.core.HolderLookup;
@@ -120,12 +121,12 @@ public final class OfferFactory {
         for (int i = 0; i < listings.length; i++) {
             TradeKey flatKey = buildListingKey(merchantLevel, i);
             try {
-                MerchantOffer preview = listings[i].getOffer(villager, costRandom(villager, flatKey));
+                MerchantOffer preview = VersionCompat.getOffer(listings[i], level, villager, costRandom(villager, flatKey));
                 if (preview == null) continue;
 
                 ItemStack result = preview.getResult();
                 if (result.is(Items.ENCHANTED_BOOK)) {
-                    out.addAll(expandBookTrade(villager, listings[i], registries));
+                    out.addAll(expandBookTrade(level, villager, listings[i], registries));
                 } else if (result.is(Items.TIPPED_ARROW)) {
                     List<AvailableTrade> arrows = expandArrowTrade(villager, preview, registries);
                     if (arrows.isEmpty()) out.add(new AvailableTrade(flatKey, preview));
@@ -161,7 +162,7 @@ public final class OfferFactory {
         int count = 0;
         for (VillagerTrades.ItemListing listing : listings) {
             try {
-                MerchantOffer preview = listing.getOffer(villager, MinRandomSource.INSTANCE);
+                MerchantOffer preview = VersionCompat.getOffer(listing, level, villager, MinRandomSource.INSTANCE);
                 if (preview != null && preview.getResult().is(Items.ENCHANTED_BOOK)) count++;
             } catch (Exception e) {
                 // Skip — same templates enumerate() would skip; not a book slot we can offer.
@@ -186,7 +187,7 @@ public final class OfferFactory {
         VillagerTrades.ItemListing[] listings = listingsFor(level, prof, ref.level());
         if (listings == null || ref.index() < 0 || ref.index() >= listings.length) return Optional.empty();
         try {
-            return Optional.ofNullable(listings[ref.index()].getOffer(villager, costRandom(villager, key)));
+            return Optional.ofNullable(VersionCompat.getOffer(listings[ref.index()], level, villager, costRandom(villager, key)));
         } catch (Exception e) {
             TradeOptimizer.LOGGER.warn("Failed to generate offer for trade {}: {}", key.id(), e.getMessage());
             return Optional.empty();
@@ -197,7 +198,7 @@ public final class OfferFactory {
     // Book enumeration: one card per (enchantment × level)
     // -------------------------------------------------------------------------
 
-    private static List<AvailableTrade> expandBookTrade(Villager villager, VillagerTrades.ItemListing template,
+    private static List<AvailableTrade> expandBookTrade(ServerLevel level, Villager villager, VillagerTrades.ItemListing template,
                                                         HolderLookup.Provider registries) {
         List<AvailableTrade> out = new ArrayList<>();
         List<Holder<Enchantment>> tradeable = tradeableEnchantments(registries);
@@ -214,7 +215,7 @@ public final class OfferFactory {
                 int levelOffset = lvl - minLvl;
                 try {
                     TradeKey bookKey = buildSyntheticBookKey(enchKey.get().location(), lvl);
-                    MerchantOffer offer = template.getOffer(villager,
+                    MerchantOffer offer = VersionCompat.getOffer(template, level, villager,
                             new IndexBiasedRandomSource(bookCostFallback(villager, bookKey), enchIdx, levelOffset));
                     if (offer == null || !offer.getResult().is(Items.ENCHANTED_BOOK)) continue;
                     out.add(new AvailableTrade(bookKey, offer));
@@ -266,7 +267,7 @@ public final class OfferFactory {
 
             for (int i = 0; i < listings.length; i++) {
                 try {
-                    MerchantOffer offer = listings[i].getOffer(villager,
+                    MerchantOffer offer = VersionCompat.getOffer(listings[i], level, villager,
                             new IndexBiasedRandomSource(costFallback, enchIdx, levelOffset));
                     if (offer == null || !offer.getResult().is(Items.ENCHANTED_BOOK)) continue;
                     TradeOptimizer.LOGGER.info("[book-regen] resolved {} -> {} via listing {}/{}",
@@ -508,7 +509,7 @@ public final class OfferFactory {
             if (listings == null) continue;
             for (int i = 0; i < listings.length; i++) {
                 try {
-                    MerchantOffer preview = listings[i].getOffer(villager, costRandom(villager, buildListingKey(lvl, i)));
+                    MerchantOffer preview = VersionCompat.getOffer(listings[i], level, villager, costRandom(villager, buildListingKey(lvl, i)));
                     if (preview != null && match.test(preview)) return GearTemplateInfo.from(preview);
                 } catch (Exception e) {
                     // skip
