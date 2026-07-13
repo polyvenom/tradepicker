@@ -26,20 +26,23 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Sanity net for reputation pricing (the v1.0.1 fix, restructured in v1.0.5).
+ * Regression net for reputation pricing (the "reputation doesn't work" CurseForge report).
  *
- * The mod opens the merchant manually (setTradingPlayer + openTradingScreen) instead of
- * vanilla's startTrading, so vanilla's discount pass — Villager.updateSpecialPrices(player),
- * which writes -floor(reputation × priceMultiplier) into each offer's specialPriceDiff —
- * has to be re-invoked by ProfileController.refreshSpecialPrices on every open path. If any
- * path forgets it, players stop getting curing / gossip discounts; if the reset-before-apply
- * is lost, discounts STACK on every re-open instead. This test pins both directions:
+ * The mod opens the merchant manually instead of vanilla's startTrading, so vanilla's
+ * discount pass — Villager.updateSpecialPrices(player), which writes
+ * -floor(reputation × priceMultiplier) into each offer's specialPriceDiff — is re-invoked
+ * by ProfileController.openMerchant on every open. Two failure modes are pinned here:
  *
- *   1. a player with positive gossip reputation gets a negative specialPriceDiff whose
- *      magnitude matches vanilla's formula on every offer with a non-zero multiplier;
- *   2. re-opening (re-applying) does not accumulate the discount;
- *   3. a reputation-less player on the same villager gets no discount (the refresh is
- *      per-player, not baked into the stored offers).
+ *   1. WIPE-ON-REOPEN (the shipped bug): the vanilla client sends two interact packets
+ *      per right-click, so the open path runs twice per click. The second run's stale-menu
+ *      teardown fires villager.setTradingPlayer(null) → resetSpecialPrices(), and a
+ *      discount refresh done BEFORE that teardown is destroyed — the menu the player sees
+ *      shows full prices. Fixed by refreshing INSIDE openMerchant, after the teardown.
+ *      Re-opening here deliberately does NOT close the previous menu (mock players never
+ *      send close packets), which reproduces the double-fire's stale-menu state exactly.
+ *
+ *   2. STACKING: updateSpecialPrices accumulates, so if the reset-before-apply inside
+ *      refreshSpecialPrices is ever dropped, re-opens compound the discount.
  *
  * Farmer is used for its flat, biome-independent trades (unaffected by the gametest
  * server's experimental Trade Rebalance datapack).
@@ -47,7 +50,7 @@ import java.util.UUID;
 public class ReputationPricingGameTest {
 
     @GameTest
-    public void reputationDiscountAppliesAndDoesNotStack(GameTestHelper helper) {
+    public void reputationDiscountSurvivesReopenAndDoesNotStack(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper);
         UUID villagerId = villager.getUUID();
@@ -74,13 +77,9 @@ public class ReputationPricingGameTest {
         helper.assertTrue(reputation > 0,
                 "gossip should yield positive reputation (got " + reputation + ")");
 
-        // Re-run the open flow (same picks, same owner) — this is applyToVillager +
-        // refreshSpecialPrices, the exact code path a right-click open goes through.
-        // Close the merchant menu first, like a real client does before it can click the
-        // villager again: a mock player never sends the close packet, and re-opening over a
-        // stale server-side MerchantMenu makes openMenu tear it down mid-open, wiping the
-        // just-applied diffs (the same stale-session hazard onReset documents).
-        player.closeContainer();
+        // Re-open WITHOUT closing the previous menu — the wipe-on-reopen repro. The stale
+        // MerchantMenu's teardown resets special prices mid-open; the discount must be
+        // written after that, or the offers sent to the client carry diff 0.
         ProfileController.onPickerSubmit(player, villagerId, 1, picks);
 
         offers = villager.getOffers();
@@ -90,22 +89,26 @@ public class ReputationPricingGameTest {
             helper.assertTrue(offer.getSpecialPriceDiff() == expected,
                     "reputation " + reputation + " × multiplier " + offer.getPriceMultiplier()
                             + " should give specialPriceDiff " + expected + " (got "
-                            + offer.getSpecialPriceDiff() + ")");
+                            + offer.getSpecialPriceDiff() + ") — a 0 here means the stale-menu "
+                            + "teardown wiped the discount after it was applied");
             if (expected < 0) anyDiscount = true;
         }
         helper.assertTrue(anyDiscount,
                 "at least one picked farmer offer should carry a visible reputation discount");
 
-        // 3) Re-open twice more: the diff must hold steady, not stack. updateSpecialPrices
-        //    accumulates, so this fails if the reset-before-apply is ever dropped.
+        // 3) Two more no-close re-opens: the diff must hold steady, not stack — and a
+        //    properly closed session must come back discounted too.
         List<Integer> before = diffs(offers);
-        player.closeContainer();
         ProfileController.onPickerSubmit(player, villagerId, 1, picks);
-        player.closeContainer();
         ProfileController.onPickerSubmit(player, villagerId, 1, picks);
         List<Integer> after = diffs(villager.getOffers());
         helper.assertTrue(before.equals(after),
-                "discount stacked across re-opens: " + before + " -> " + after);
+                "discount changed across no-close re-opens: " + before + " -> " + after);
+
+        player.closeContainer(); // vanilla resets special prices when trading stops
+        ProfileController.onPickerSubmit(player, villagerId, 1, picks);
+        helper.assertTrue(before.equals(diffs(villager.getOffers())),
+                "discount not restored after a clean close/reopen cycle");
 
         helper.succeed();
     }
@@ -126,7 +129,6 @@ public class ReputationPricingGameTest {
         List<TradeKey> picks = firstTwoPicks(level, villager, helper);
         ProfileController.onPickerSubmit(owner, villagerId, 1, picks);
         villager.getGossips().add(owner.getUUID(), GossipType.MAJOR_POSITIVE, 20);
-        owner.closeContainer(); // mock players never send the close packet themselves
         ProfileController.onPickerSubmit(owner, villagerId, 1, picks);
 
         boolean anyDiscount = false;
