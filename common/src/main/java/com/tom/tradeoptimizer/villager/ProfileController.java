@@ -139,9 +139,8 @@ public final class ProfileController {
                 // every "filled villager" path consistent. Letting vanilla handle it
                 // here was the source of the 1-frame / no-open bug since vanilla's
                 // mobInteract silently no-ops in our flow.
-                applyToVillager(level, villager, profile, player);
-                villager.setTradingPlayer(player);
-                villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+                applyToVillager(level, villager, profile);
+                openMerchant(villager, player, merchantLevel);
                 return false;
             }
             if (trulyFresh && existing != null && !existing.isEmpty()) {
@@ -174,26 +173,19 @@ public final class ProfileController {
         }
 
         // Has entries (picks or legacy) for the current level — open the merchant menu
-        // directly. Order matters: setTradingPlayer FIRST, then openTradingScreen.
-        // MerchantMenu.stillValid() returns (merchant.getTradingPlayer() == player). If
-        // tradingPlayer is null when vanilla validates the container on its next tick, it
-        // sends ClientboundContainerClosePacket and the menu disappears after 1 frame.
-        // That's exactly what `startTrading` does in vanilla, just spelled out here.
+        // directly via openMerchant (which handles stale-session teardown and the
+        // reputation / Hero-of-the-Village discount refresh, in that order — see there).
         //
         // We do NOT rebuild the offers here. Regenerating them on every open reset each
         // trade's use-count, so picked trades restocked instantly and bypassed vanilla's
         // cooldown. The offers were already built when the picks were chosen and vanilla
-        // persists them with the villager, so reuse what's live and only refresh
-        // reputation / Hero-of-the-Village discounts. Rebuild only if they're somehow
-        // missing (e.g. another mechanic wiped them).
+        // persists them with the villager, so reuse what's live. Rebuild only if they're
+        // somehow missing (e.g. another mechanic wiped them).
         MerchantOffers live = villager.getOffers();
         if (live == null || live.isEmpty()) {
-            applyToVillager(level, villager, profile, player);
-        } else {
-            refreshSpecialPrices(villager, player);
+            applyToVillager(level, villager, profile);
         }
-        villager.setTradingPlayer(player);
-        villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+        openMerchant(villager, player, merchantLevel);
         return false;
     }
 
@@ -313,13 +305,12 @@ public final class ProfileController {
         profile.setPicks(level, validatedPicks);
         state.update(profile);
 
-        applyToVillager(sl, villager, profile, player);
+        applyToVillager(sl, villager, profile);
 
         // Auto-open the merchant right here so the user doesn't have to right-click
-        // again after confirming picks. Same setTradingPlayer + openTradingScreen
-        // pair we use in onInteract.
-        villager.setTradingPlayer(player);
-        villager.openTradingScreen(player, villager.getDisplayName(), level);
+        // again after confirming picks. Same open path (with stale-session teardown
+        // and discount refresh) we use in onInteract.
+        openMerchant(villager, player, level);
     }
 
     public static void onReset(ServerPlayer player, UUID villagerId) {
@@ -387,6 +378,40 @@ public final class ProfileController {
     // -------------------------------------------------------------------------
     // Internal helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Open the merchant menu for {@code player}: tear down any stale trade session, THEN
+     * refresh the per-player discounts, THEN open. The order is load-bearing twice over.
+     *
+     * The vanilla client sends TWO packets per entity right-click (interact_at, then
+     * interact), and Fabric's UseEntityCallback fires for each — so onInteract runs twice
+     * per click and this method must be idempotent. On the second run the player's open
+     * container is the MerchantMenu the first run just created, and vanilla wires menu
+     * teardown deep into villager state:
+     *
+     *   - ServerPlayer.openMenu closes the current container as its first step; a
+     *     MerchantMenu's removed() calls villager.setTradingPlayer(null), which in turn
+     *     runs villager.resetSpecialPrices() — zeroing every offer's specialPriceDiff.
+     *   - So a discount refresh done BEFORE the open gets silently wiped by that teardown,
+     *     and the menu the player actually sees shows full prices ("reputation doesn't
+     *     work" — the discounts were applied, then destroyed, every double-fired open).
+     *   - The same teardown also nulls the tradingPlayer set before openTradingScreen;
+     *     MerchantMenu.stillValid() is (merchant.getTradingPlayer() == player), so the
+     *     fresh menu would fail validation on the next tick and close after one frame.
+     *
+     * Closing the stale container up front leaves openMenu nothing to tear down, and
+     * refreshing the discounts after that teardown (and after setTradingPlayer, which
+     * never resets prices on a non-null player) means the offers sent to the client are
+     * the discounted ones, no matter how many times the open is re-entered.
+     */
+    private static void openMerchant(Villager villager, ServerPlayer player, int merchantLevel) {
+        if (player.containerMenu != player.inventoryMenu) {
+            player.closeContainer();
+        }
+        villager.setTradingPlayer(player);
+        refreshSpecialPrices(villager, player);
+        villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+    }
 
     /**
      * Split a flat MerchantOffers list into per-level legacy buckets.
@@ -566,9 +591,8 @@ public final class ProfileController {
             profile.setPicks(merchantLevel, autoPicks);
             state.update(profile);
 
-            applyToVillager(level, villager, profile, player);
-            villager.setTradingPlayer(player);
-            villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
+            applyToVillager(level, villager, profile);
+            openMerchant(villager, player, merchantLevel);
 
             TradeOptimizer.LOGGER.info("Auto-progressed {} level {}: {} option(s), no choice needed",
                     profile.profession(), merchantLevel, available.size());
@@ -626,9 +650,11 @@ public final class ProfileController {
      * instances and re-adds them below, so their use-counts are already preserved across rebuilds.
      * They're excluded from the carry-over pool so a pick can't consume (and then duplicate) one.
      *
-     * Reputation modifiers (from curing or hero of the village) are applied if a player is provided.
+     * Reputation / Hero-of-the-Village discounts are NOT applied here — they're per-player,
+     * per-session state, written by {@link #openMerchant} right before the menu opens (after the
+     * stale-session teardown that would otherwise wipe them).
      */
-    private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile, ServerPlayer player) {
+    private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile) {
         int currentLevel = villager.getVillagerData().level();
 
         // Carry-over pool of the previously-live PICK offers, used to preserve use-counts. Legacy
@@ -661,7 +687,6 @@ public final class ProfileController {
         }
 
         villager.setOffers(offers);
-        refreshSpecialPrices(villager, player);
     }
 
     /**
@@ -688,9 +713,12 @@ public final class ProfileController {
      *
      * Vanilla computes these in Villager.updateSpecialPrices(player), writing each
      * discount into the offer's specialPriceDiff, and only calls it from startTrading().
-     * Because we open the merchant manually (setTradingPlayer + openTradingScreen, to
-     * dodge the 1-frame menu bug) that call was being skipped, so curing / Hero discounts
-     * never applied. We reproduce it here.
+     * Because we open the merchant manually (to dodge the 1-frame menu bug) that call was
+     * being skipped, so curing / Hero discounts never applied. We reproduce it here.
+     *
+     * Called ONLY from {@link #openMerchant}, after the stale-session teardown — anything
+     * earlier gets wiped when the teardown's setTradingPlayer(null) runs vanilla's
+     * resetSpecialPrices() (that ordering bug shipped as "reputation doesn't work").
      *
      * updateSpecialPrices ACCUMULATES (it adds to specialPriceDiff, never resets), so we
      * clear each offer first — otherwise re-opening a villager would stack the discount
