@@ -11,6 +11,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.living.LivingConversionEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
 /**
@@ -26,6 +27,11 @@ public final class TradeOptimizerNeoForge {
 
         // Server-side villager interaction on the game bus.
         NeoForge.EVENT_BUS.addListener(TradeOptimizerNeoForge::onEntityInteract);
+
+        // Conversions (zombify / cure / lightning) replace the entity and mint a new
+        // UUID; re-key the profile so picks and ownership survive the round trip.
+        NeoForge.EVENT_BUS.addListener((LivingConversionEvent.Post event) ->
+                ProfileController.onMobConverted(event.getEntity(), event.getOutcome()));
 
         // Client-only setup (last-villager tracking). Guarded so a dedicated server never
         // classloads client code.

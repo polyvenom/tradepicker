@@ -46,6 +46,20 @@ public final class VillagerProfileState extends SavedData {
         setDirty();
     }
 
+    /**
+     * Move a profile from one villager UUID to another. Conversions (villager →
+     * zombie villager, cure back, lightning → witch) never copy the UUID — vanilla
+     * spawns a brand-new entity — so the profile must be re-keyed to follow it.
+     * Returns true if a profile was moved.
+     */
+    public boolean rekey(UUID from, UUID to) {
+        VillagerProfile p = profiles.remove(from);
+        if (p == null) return false;
+        profiles.put(to, p.withId(to));
+        setDirty();
+        return true;
+    }
+
     public static VillagerProfileState get(ServerLevel level) {
         return level.getDataStorage().computeIfAbsent(TYPE);
     }

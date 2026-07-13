@@ -102,4 +102,13 @@ public record VillagerProfile(
     public VillagerProfile withOwner(UUID newOwner) {
         return new VillagerProfile(id, profession, Optional.of(newOwner), picks, legacy);
     }
+
+    /**
+     * Return a copy keyed to a new villager UUID, preserving everything else. Entity
+     * conversions (zombification, curing) DISCARD the old entity and spawn a new one
+     * with a fresh UUID, so the profile has to follow it.
+     */
+    public VillagerProfile withId(UUID newId) {
+        return new VillagerProfile(newId, profession, owner, picks, legacy);
+    }
 }
