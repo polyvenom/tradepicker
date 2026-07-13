@@ -313,6 +313,32 @@ public final class ProfileController {
         openMerchant(villager, player, level);
     }
 
+    /**
+     * Called after any mob conversion (both loaders wire their conversion event here).
+     *
+     * Vanilla's Mob.convertTo DISCARDS the old entity and creates a new one — the UUID
+     * is never copied (ConversionType.SINGLE copies position/effects/team only). Profiles
+     * are keyed by villager UUID, so without this hook a zombify→cure round trip orphans
+     * the profile: the cured villager keeps its trade offers (vanilla copies those in
+     * ZombieVillager.finishConversion) but loses its picks and owner, and the next
+     * right-click imports its own picked trades — plus any random vanilla level-up rolls
+     * that snuck in — as permanent "legacy" offers, silently skipping the picker
+     * (playtest: mystery villager with 6 unpicked offers and no profile).
+     *
+     * Re-keying on every conversion keeps the profile attached through the whole chain:
+     * villager → zombie villager (profile parks on the zombie's UUID) → cured villager.
+     */
+    public static void onMobConverted(net.minecraft.world.entity.LivingEntity previous,
+                                      net.minecraft.world.entity.LivingEntity converted) {
+        if (!(previous.level() instanceof ServerLevel level)) return;
+        VillagerProfileState state = VillagerProfileState.get(level);
+        if (state.rekey(previous.getUUID(), converted.getUUID())) {
+            TradeOptimizer.LOGGER.info("Re-keyed villager profile {} -> {} ({} conversion)",
+                    previous.getUUID(), converted.getUUID(),
+                    BuiltInRegistries.ENTITY_TYPE.getKey(converted.getType()));
+        }
+    }
+
     public static void onReset(ServerPlayer player, UUID villagerId) {
         ServerLevel sl = player.level();
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) return;
