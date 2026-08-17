@@ -28,10 +28,10 @@ import net.minecraft.server.permissions.Permission;
 import net.minecraft.server.permissions.PermissionLevel;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -672,28 +672,42 @@ public final class ProfileController {
      * (same result + base cost), we KEEP the existing offer instance so its accumulated uses (and
      * demand) survive. Only a genuinely new pick gets a fresh, empty offer.
      *
-     * Legacy levels keep their imported MerchantOffers verbatim — the profile holds those exact
-     * instances and re-adds them below, so their use-counts are already preserved across rebuilds.
-     * They're excluded from the carry-over pool so a pick can't consume (and then duplicate) one.
+     * Legacy levels get the same treatment, matched by value: the live instance is claimed for
+     * each stored legacy offer where one exists, and the stored copy is only a fallback. The
+     * profile's copies are a snapshot taken at import time, so relying on them would roll uses
+     * back to zero on the first rebuild after a world reload (audit #8).
      *
      * Reputation / Hero-of-the-Village discounts are NOT applied here — they're per-player,
      * per-session state, written by {@link #openMerchant} right before the menu opens (after the
      * stale-session teardown that would otherwise wipe them).
      */
-    private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile) {
+    // Package-private (not private) so the profile-persistence gametest can drive a rebuild
+    // directly; the public callers all sit behind networking gates it can't reach.
+    static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile) {
         int currentLevel = villager.getVillagerData().level();
 
-        // Carry-over pool of the previously-live PICK offers, used to preserve use-counts. Legacy
-        // offers are filtered out by identity: the profile re-adds those same instances, so reusing
-        // one here would list it twice.
-        Set<MerchantOffer> legacyInstances = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (List<MerchantOffer> bucket : profile.legacy().values()) legacyInstances.addAll(bucket);
+        // Pool of the previously-live offers, drawn on to preserve accrued uses/demand.
         List<MerchantOffer> carryOver = new ArrayList<>();
         MerchantOffers previous = villager.getOffers();
-        if (previous != null) {
-            for (MerchantOffer offer : previous) {
-                if (!legacyInstances.contains(offer)) carryOver.add(offer);
+        if (previous != null) carryOver.addAll(previous);
+
+        // Legacy claims its live instances FIRST, matched by value. Identity would be wrong here:
+        // the profile's legacy offers are only the same objects as the live ones within a single
+        // session — after a reload the profile decodes into fresh MerchantOffers, so an identity
+        // check finds nothing, the live legacy offers fall into the carry-over pool, and the stale
+        // decoded snapshots get listed instead. That rolls back use-counts (a free restock) and can
+        // duplicate a trade when a pick happens to match one. Claiming first also stops a pick from
+        // consuming a legacy instance and listing it twice.
+        Map<Integer, List<MerchantOffer>> resolvedLegacy = new HashMap<>();
+        for (int lvl = 1; lvl <= currentLevel; lvl++) {
+            List<MerchantOffer> stored = profile.legacyFor(lvl);
+            if (stored.isEmpty()) continue;
+            List<MerchantOffer> resolved = new ArrayList<>(stored.size());
+            for (MerchantOffer snapshot : stored) {
+                MerchantOffer live = takeMatching(carryOver, snapshot);
+                resolved.add(live != null ? live : snapshot);
             }
+            resolvedLegacy.put(lvl, resolved);
         }
 
         MerchantOffers offers = new MerchantOffers();
@@ -709,7 +723,7 @@ public final class ProfileController {
                 MerchantOffer kept = takeMatching(carryOver, fresh);
                 offers.add(kept != null ? kept : fresh);
             }
-            offers.addAll(profile.legacyFor(lvl));
+            offers.addAll(resolvedLegacy.getOrDefault(lvl, List.of()));
         }
 
         villager.setOffers(offers);
