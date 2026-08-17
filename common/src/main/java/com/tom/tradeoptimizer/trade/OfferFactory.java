@@ -15,6 +15,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.EnchantmentTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.Unit;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
 import net.minecraft.world.item.Item;
@@ -386,6 +387,20 @@ public final class OfferFactory {
         return new ItemCost(Items.EMERALD, total);
     }
 
+    /**
+     * Cost for a tipped arrow when the fletcher has cost scaling enabled. Arrows carry no
+     * enchantments, so the gear formula has nothing to weigh — scale on potion strength
+     * instead: the base fee plus one emerald per effect and one more per amplifier step.
+     */
+    private static ItemCost scaledArrowCost(Potion potion) {
+        int total = 2;
+        for (MobEffectInstance eff : potion.getEffects()) {
+            total += 1 + eff.getAmplifier();
+        }
+        total = Math.max(1, Math.min(EMERALD_CAP, total));
+        return new ItemCost(Items.EMERALD, total);
+    }
+
     // -------------------------------------------------------------------------
     // Tipped-arrow enumeration: one card per potion (book-style, single effect)
     // -------------------------------------------------------------------------
@@ -400,15 +415,18 @@ public final class OfferFactory {
             Optional<ResourceKey<Potion>> pk = h.unwrapKey();
             if (pk.isEmpty()) return;
             TradeKey key = arrowKey(pk.get().identifier());
-            out.add(new AvailableTrade(key, buildArrowOffer(tmpl, h)));
+            out.add(new AvailableTrade(key, buildArrowOffer(tmpl, h, professionId(villager))));
         });
         return out;
     }
 
-    private static MerchantOffer buildArrowOffer(GearTemplateInfo tmpl, Holder<Potion> potion) {
+    private static MerchantOffer buildArrowOffer(GearTemplateInfo tmpl, Holder<Potion> potion, String profId) {
         ItemStack arrow = new ItemStack(Items.TIPPED_ARROW, tmpl.count());
         arrow.set(DataComponents.POTION_CONTENTS, new PotionContents(potion));
-        return new MerchantOffer(tmpl.costA(), tmpl.costB(), arrow, tmpl.maxUses(), tmpl.xp(), tmpl.priceMultiplier());
+        ItemCost costA = TradeOptimizerConfig.get().isCostScaling(profId)
+                ? scaledArrowCost(potion.value())
+                : tmpl.costA();
+        return new MerchantOffer(costA, tmpl.costB(), arrow, tmpl.maxUses(), tmpl.xp(), tmpl.priceMultiplier());
     }
 
     // -------------------------------------------------------------------------
@@ -457,7 +475,7 @@ public final class OfferFactory {
             TradeOptimizer.LOGGER.warn("[arrow-regen] no tipped-arrow template found for {}", key.id());
             return Optional.empty();
         }
-        return Optional.of(buildArrowOffer(tmpl, potion.get()));
+        return Optional.of(buildArrowOffer(tmpl, potion.get(), professionId(villager)));
     }
 
     /**
