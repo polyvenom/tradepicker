@@ -95,6 +95,15 @@ public record VillagerProfile(
     }
 
     /**
+     * Return a copy filed under a new villager UUID. Vanilla's mob conversions (zombify,
+     * cure, lightning) DISCARD the old entity and spawn a new one with a new UUID, so the
+     * profile has to be re-keyed to stay attached to the villager it describes.
+     */
+    public VillagerProfile withId(UUID newId) {
+        return new VillagerProfile(newId, profession, owner, picks, legacy);
+    }
+
+    /**
      * Return a copy carrying the given owner, preserving picks/legacy as-is. Used to
      * claim a grandfathered profile that has no owner yet, or to preserve ownership
      * across a profession-change wipe.
