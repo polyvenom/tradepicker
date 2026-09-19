@@ -490,7 +490,7 @@ public final class ProfileController {
         Optional<Holder.Reference<TradeSet>> setRef =
                 registries.lookupOrThrow(Registries.TRADE_SET).get(key);
         if (setRef.isEmpty()) return MAX_TRADES_PER_LEVEL;
-        int entries = setRef.get().value().getTrades().size();
+        int entries = setRef.get().value().trades().size();
         return Math.min(MAX_TRADES_PER_LEVEL, entries);
     }
 

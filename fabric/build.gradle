@@ -90,7 +90,7 @@ dependencies {
 	// Game-test framework, scoped to the gametest source set only (matches this
 	// project's convention of plain `implementation` for Fabric mod deps — see
 	// fabric-api above). Not on main/client, so it never reaches the release jar.
-	gametestImplementation "net.fabricmc.fabric-api:fabric-gametest-api-v1:${project.gametest_api_version}"
+	gametestImplementation fabricApi.module("fabric-gametest-api-v1", project.fabric_api_version)
 }
 
 test {

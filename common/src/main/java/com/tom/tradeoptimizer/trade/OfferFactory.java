@@ -76,7 +76,7 @@ public final class OfferFactory {
             return out;
         }
         TradeSet tradeSet = setRef.get().value();
-        HolderSet<VillagerTrade> trades = tradeSet.getTrades();
+        HolderSet<VillagerTrade> trades = tradeSet.trades();
 
         for (Holder<VillagerTrade> holder : trades) {
             Optional<ResourceKey<VillagerTrade>> keyOpt = holder.unwrapKey();
@@ -130,7 +130,7 @@ public final class OfferFactory {
         TradeSet tradeSet = setRef.get().value();
 
         int count = 0;
-        for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
+        for (Holder<VillagerTrade> holder : tradeSet.trades()) {
             Optional<ResourceKey<VillagerTrade>> keyOpt = holder.unwrapKey();
             if (keyOpt.isEmpty()) continue;
             try {
@@ -501,7 +501,7 @@ public final class OfferFactory {
                     registries.lookupOrThrow(Registries.TRADE_SET).get(tradeSetKey);
             if (setRef.isEmpty()) continue;
             TradeSet tradeSet = setRef.get().value();
-            for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
+            for (Holder<VillagerTrade> holder : tradeSet.trades()) {
                 Optional<ResourceKey<VillagerTrade>> keyOpt = holder.unwrapKey();
                 if (keyOpt.isEmpty()) continue;
                 try {
@@ -704,7 +704,7 @@ public final class OfferFactory {
             if (setRef.isEmpty()) continue;
             TradeSet tradeSet = setRef.get().value();
 
-            for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
+            for (Holder<VillagerTrade> holder : tradeSet.trades()) {
                 String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
                 try {
                     VillagerTrade trade = holder.value();
