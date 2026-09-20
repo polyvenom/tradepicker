@@ -1,5 +1,6 @@
 package com.tom.tradeoptimizer.client.ui;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.tom.tradeoptimizer.client.platform.ClientServices;
 import com.tom.tradeoptimizer.network.PickerSubmitC2S;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
@@ -456,7 +457,9 @@ public final class TradePickerScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        if (event.button() != 0) return super.mouseClicked(event, doubleClick);
+        // 26.3 renumbered the mouse buttons: left is MOUSE_BUTTON_LEFT (1), not GLFW's 0.
+        // Use the constant so a future renumber can't silently kill card selection again.
+        if (event.button() != InputConstants.MOUSE_BUTTON_LEFT) return super.mouseClicked(event, doubleClick);
 
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
         int visible = visibleRows();
