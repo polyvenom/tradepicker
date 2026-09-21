@@ -116,6 +116,6 @@ public class TradePickerConfigScreen extends Screen {
 
     @Override
     public void onClose() {
-        if (this.minecraft != null) this.minecraft.setScreenAndShow(this.parent);
+        if (this.minecraft != null) this.minecraft.gui.setScreen(this.parent);
     }
 }
