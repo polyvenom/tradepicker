@@ -84,7 +84,7 @@ Hit the **Reset** button on any trade screen to wipe a villager back to Novice a
 
 ## Compatibility
 
-- **Loaders:** Fabric and NeoForge, Minecraft 26.2.
+- **Loaders:** Fabric on Minecraft 26.3. For Minecraft 26.2, use version 1.4.0, which covers Fabric and NeoForge.
 - Works with Sodium / Embeddium, Iris / Oculus, Lithium / Starlight, EMI / JEI / REI, and ModMenu.
 - Compatible with data packs that add or change villager trades.
 - **Heads-up:** don't install alongside another trade-cycling mod — you only need one, and running two can conflict.
@@ -93,9 +93,9 @@ Hit the **Reset** button on any trade screen to wipe a villager back to Novice a
 
 ## Install
 
-1. Install **Fabric Loader** or **NeoForge** for Minecraft 26.2.
-2. On Fabric, also install [Fabric API](https://modrinth.com/mod/fabric-api).
-3. Drop the matching Trade Picker jar into your `mods` folder.
+1. Install **Fabric Loader** 0.19.5 or newer for Minecraft 26.3.
+2. Also install [Fabric API](https://modrinth.com/mod/fabric-api).
+3. Drop the Trade Picker jar into your `mods` folder.
 4. **On a server:** install on both the server and the client.
 
 Right-click a villager and it just works — no setup required.

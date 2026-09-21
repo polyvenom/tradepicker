@@ -69,16 +69,15 @@ Trade Picker skips the RNG entirely. You choose which trades a villager gets dir
 
 ## Install
 
-Trade Picker runs on **Fabric** and **NeoForge** for Minecraft 26.2. Pick the jar that matches your loader.
+Trade Picker runs on **Fabric** for Minecraft 26.3, and on **Fabric** or **NeoForge** for Minecraft 26.2.
 
-### Fabric
-1. Install [Fabric Loader](https://fabricmc.net/use/installer/) for Minecraft 26.2
+### Fabric, Minecraft 26.3
+1. Install [Fabric Loader](https://fabricmc.net/use/installer/) 0.19.5 or newer for Minecraft 26.3
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
 3. Drop `tradeoptimizer-fabric-<version>.jar` into your `mods` folder
 
-### NeoForge
-1. Install [NeoForge](https://neoforged.net/) for Minecraft 26.2 (26.2.0.1-beta or newer)
-2. Drop `tradeoptimizer-neoforge-<version>.jar` into your `mods` folder
+### Minecraft 26.2
+Use Trade Picker 1.4.0, which covers both loaders on 26.2. NeoForge builds for 26.3 aren't available yet.
 
 On a server: install on both server and client. Worlds carry over between loaders — the mod id and save data are identical, so a villager's picks survive moving the world from Fabric to NeoForge (or back). One small config file is optional (`config/tradeoptimizer.json`). Right-click a villager and it works.
 
@@ -94,7 +93,7 @@ cd tradepicker
 # neoforge jar: neoforge/build/libs/tradeoptimizer-neoforge-<version>.jar
 ```
 
-Requires Java 25. Multi-module build: a `common` module holds the shared logic, the `fabric` module uses Fabric Loom, and the `neoforge` module uses ModDevGradle. Targets Fabric API `0.152.1+26.2` and NeoForge `26.2.0.1-beta`.
+Requires Java 25. Multi-module build: a `common` module holds the shared logic, the `fabric` module uses Fabric Loom, and the `neoforge` module uses ModDevGradle. The Fabric module targets Minecraft 26.3 with Fabric API `0.161.0+26.3`; the NeoForge module is still on 26.2 (`26.2.0.1-beta`), so build it with `./gradlew :fabric:build` unless you want both.
 
 ---
 
