@@ -1,5 +1,6 @@
 package com.tom.tradeoptimizer.client.ui;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import com.tom.tradeoptimizer.client.platform.ClientServices;
 import com.tom.tradeoptimizer.network.PickerSubmitC2S;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
@@ -48,6 +49,8 @@ public final class TradePickerScreen extends Screen {
     private static final int TOP_PAD = 70; // raised to make room for the search box
     private static final int BOTTOM_RESERVED = 60;
     private static final int LABEL_RIGHT_PAD = 6;
+    /** 3s — a submit that hasn't been answered by then was refused server-side. */
+    private static final int SUBMIT_TIMEOUT_TICKS = 60;
 
     private final OpenPickerS2C data;
     private final Set<Integer> selectedIndices = new HashSet<>();
@@ -67,7 +70,19 @@ public final class TradePickerScreen extends Screen {
 
     private EditBox searchBox;
     private Button confirmBtn;
+    private Button cancelBtn;
     private int scrollRow = 0;
+
+    /**
+     * Set once Confirm is pressed. The screen deliberately stays up while the server works:
+     * closing to the world first meant the player watched the world for the network round-trip
+     * before the merchant (or the next level's picker) appeared — a blink on every confirm.
+     * Whatever the server opens next replaces this screen, so the transition is seamless.
+     */
+    private boolean submitted = false;
+
+    /** Ticks spent waiting on the server, so a rejected submit can't strand the player. */
+    private int submittedTicks = 0;
 
     private String titleText = "";
     private String statusText = "";
@@ -122,9 +137,10 @@ public final class TradePickerScreen extends Screen {
         confirmBtn.active = false;
         addRenderableWidget(confirmBtn);
 
-        addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> onClose())
+        cancelBtn = Button.builder(Component.literal("Cancel"), b -> onClose())
                 .bounds(this.width / 2 + 4, this.height - 30, 80, 20)
-                .build());
+                .build();
+        addRenderableWidget(cancelBtn);
     }
 
     /**
@@ -205,11 +221,32 @@ public final class TradePickerScreen extends Screen {
     }
 
     private void onConfirm() {
-        if (selectedIndices.size() != data.picksRequired()) return;
+        if (submitted || selectedIndices.size() != data.picksRequired()) return;
         List<TradeKey> picks = new ArrayList<>();
         for (int idx : selectedIndices) picks.add(data.available().get(idx).key());
         ClientServices.NETWORK.sendToServer(new PickerSubmitC2S(data.villagerId(), data.level(), picks));
-        onClose();
+
+        // Hold the screen rather than dropping to the world. The server answers with the merchant
+        // or the next level's picker, and that replaces this screen directly.
+        submitted = true;
+        submittedTicks = 0;
+        confirmBtn.active = false;
+        cancelBtn.active = false;
+        statusText = "Applying picks...";
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!submitted) return;
+        // The server can decline a submit (e.g. the book cap) and open nothing at all. Hand the
+        // screen back rather than leaving the player on a dead dialog they can only escape.
+        if (++submittedTicks > SUBMIT_TIMEOUT_TICKS) {
+            submitted = false;
+            confirmBtn.active = selectedIndices.size() == data.picksRequired();
+            cancelBtn.active = true;
+            rebuildStatusText();
+        }
     }
 
     private int visibleRows() {
@@ -456,7 +493,8 @@ public final class TradePickerScreen extends Screen {
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
-        if (event.button() != 0) return super.mouseClicked(event, doubleClick);
+        if (event.button() != InputConstants.MOUSE_BUTTON_LEFT) return super.mouseClicked(event, doubleClick);
+        if (submitted) return super.mouseClicked(event, doubleClick);
 
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
         int visible = visibleRows();
