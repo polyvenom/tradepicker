@@ -179,8 +179,20 @@ public final class ProfileController {
                     villager.getUUID(), player.getName().getString());
         }
 
-        if (!profile.isFilled(merchantLevel)) {
-            sendPicker(player, villager, profile, merchantLevel);
+        // Pick for the LOWEST level still unpicked, not just the current one. Vanilla banks
+        // level-ups while the player is trading and applies them after the screen closes, so a
+        // villager can easily arrive here two levels ahead of its picks.
+        int unfilled = firstUnfilledLevel(profile, merchantLevel);
+        if (unfilled > 0 && sendPicker(player, villager, profile, unfilled)) {
+            return false;
+        }
+
+        // Every level up to the current one is picked. If the villager has banked enough XP for
+        // the next rank, vanilla's level-up is being held (VillagerLevelUpMixin) until the player
+        // chooses that rank's trades — so offer the picker for it now, before the rank arrives.
+        if (isDueToLevelUp(villager)
+                && !profile.isFilled(merchantLevel + 1)
+                && sendPicker(player, villager, profile, merchantLevel + 1)) {
             return false;
         }
 
@@ -222,7 +234,11 @@ public final class ProfileController {
         //    ever opens for the villager's current level, so a submit for a higher level
         //    is a tampered packet.
         int currentLevel = villager.getVillagerData().level();
-        if (level < 1 || level > currentLevel) {
+        // The one level above the villager's own is legitimate when vanilla's level-up is being
+        // held for it — that is exactly what the picker was opened for. Anything beyond is a
+        // tampered packet.
+        boolean levellingUp = level == currentLevel + 1 && isDueToLevelUp(villager);
+        if (level < 1 || (level > currentLevel && !levellingUp)) {
             TradeOptimizer.LOGGER.warn("[submit] rejected out-of-range level {} for villager {} (at level {})",
                     level, villagerId, currentLevel);
             return;
@@ -317,7 +333,27 @@ public final class ProfileController {
         profile.setPicks(level, validatedPicks);
         state.update(profile);
 
+        // Grant the held level-up now, so the rank and the trades the player chose for it arrive
+        // together. This is the whole of vanilla's increaseMerchantCareer minus its random trade
+        // roll, which is what the picker replaces.
+        if (levellingUp) {
+            villager.setVillagerData(villager.getVillagerData().withLevel(level));
+            currentLevel = level;
+            TradeOptimizer.LOGGER.info("Levelled {} to {} on the player's picks",
+                    profName, level);
+        }
+
         applyToVillager(sl, villager, profile);
+
+        // More than one level can be waiting: vanilla queues a level-up rather than applying
+        // it, and only drains that queue once the player stops trading, so a long session can
+        // bank two or three. Chain straight into the next picker instead of opening the
+        // merchant — otherwise every level but the last is skipped for good and the villager
+        // ends up at max level with trades missing.
+        int nextUnfilled = firstUnfilledLevel(profile, currentLevel);
+        if (nextUnfilled > 0 && sendPicker(player, villager, profile, nextUnfilled)) {
+            return;
+        }
 
         // Auto-open the merchant right here so the user doesn't have to right-click
         // again after confirming picks. Same open path (with stale-session teardown
@@ -512,6 +548,22 @@ public final class ProfileController {
         return SpawnEggItem.spawnsEntity(stack, villager.getType());
     }
 
+    /**
+     * The last picker each player was sent, so one right-click can't open the picker twice.
+     *
+     * The vanilla client sends TWO packets per entity right-click (interact_at, then interact) and
+     * the loader's interact event fires for both, so onInteract runs twice per click — see
+     * openMerchant, which is written to be idempotent for the same reason. sendPicker had no such
+     * guard: both runs shipped a payload, the client built the screen twice, and the first one was
+     * torn down a frame after it rendered. That is the blink the player sees as the picker opens.
+     */
+    private record PickerSend(UUID villagerId, int merchantLevel, long gameTime) {}
+
+    private static final Map<UUID, PickerSend> lastPickerSend = new HashMap<>();
+
+    /** Two runs of the same click land in the same tick, or within one of it under load. */
+    private static final long DUPLICATE_CLICK_TICKS = 2;
+
     /** Vanilla generates at most this many trades per merchant level. */
     private static final int MAX_TRADES_PER_LEVEL = 2;
 
@@ -603,13 +655,50 @@ public final class ProfileController {
         return out.size() >= picksRequired ? out : available;
     }
 
-    private static void sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
+    /**
+     * Vanilla's own {@code shouldIncreaseLevel} condition, recomputed here because the level-up it
+     * guards is held by VillagerLevelUpMixin until the player has picked.
+     *
+     * Deliberately the same two checks vanilla makes — the rank can still rise, and the XP earned
+     * has reached the bar for it — so a villager is offered the next rank at exactly the moment
+     * vanilla would have granted it.
+     *
+     * Package-private for LevelUpHoldGameTest.
+     */
+    static boolean isDueToLevelUp(Villager villager) {
+        int level = villager.getVillagerData().level();
+        return VillagerData.canLevelUp(level)
+                && villager.getVillagerXp() >= VillagerData.getMaxXpPerLevel(level);
+    }
+
+    /**
+     * The lowest merchant level from 1..{@code currentLevel} that still has neither picks nor
+     * legacy offers, or -1 when every level is accounted for.
+     *
+     * Scanning from the bottom rather than looking only at {@code currentLevel} is what keeps a
+     * multi-level jump from silently dropping a level's trades.
+     *
+     * Package-private for LevelCatchUpGameTest.
+     */
+    static int firstUnfilledLevel(VillagerProfile profile, int currentLevel) {
+        for (int lvl = 1; lvl <= currentLevel; lvl++) {
+            if (!profile.isFilled(lvl)) return lvl;
+        }
+        return -1;
+    }
+
+    /**
+     * @return true when this call took responsibility for what the player sees next — the picker
+     *         payload was sent, or the level auto-progressed and the merchant was opened here.
+     *         false means nothing was shown and the caller should fall back to opening the merchant.
+     */
+    private static boolean sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
         ServerLevel level = player.level();
         VillagerProfession prof = villager.getVillagerData().profession().value();
         ResourceKey<TradeSet> tradeSetKey = prof.getTrades(merchantLevel);
         if (tradeSetKey == null) {
             TradeOptimizer.LOGGER.warn("No trade set for {} level {}", profile.profession(), merchantLevel);
-            return;
+            return false;
         }
 
         List<AvailableTrade> available;
@@ -620,12 +709,12 @@ public final class ProfileController {
                     profile.profession(), merchantLevel, e);
             player.sendSystemMessage(Component.literal(
                     "Trade Optimizer: failed to enumerate trades (see server log)."));
-            return;
+            return false;
         }
         if (available.isEmpty()) {
             player.sendSystemMessage(Component.literal(
                     "No trades available for " + profile.profession() + " level " + merchantLevel));
-            return;
+            return false;
         }
 
         // How many trades the player must choose = how many vanilla actually grants at this level:
@@ -650,12 +739,31 @@ public final class ProfileController {
             state.update(profile);
 
             applyToVillager(level, villager, profile);
-            openMerchant(villager, player, merchantLevel);
 
             TradeOptimizer.LOGGER.info("Auto-progressed {} level {}: {} option(s), no choice needed",
                     profile.profession(), merchantLevel, available.size());
-            return;
+
+            // This level needed no choice, but a banked level-up may have left another one
+            // waiting behind it — carry on down the chain before showing the merchant.
+            int next = firstUnfilledLevel(profile, villager.getVillagerData().level());
+            if (next > 0 && next != merchantLevel) {
+                return sendPicker(player, villager, profile, next);
+            }
+            openMerchant(villager, player, merchantLevel);
+            return true;
         }
+
+        // Same click, same villager, same level -> the payload is already on its way. Report it
+        // as handled so the caller doesn't fall back to opening the merchant.
+        PickerSend send = new PickerSend(villager.getUUID(), merchantLevel, level.getGameTime());
+        PickerSend previous = lastPickerSend.get(player.getUUID());
+        if (previous != null
+                && previous.villagerId().equals(send.villagerId())
+                && previous.merchantLevel() == send.merchantLevel()
+                && send.gameTime() - previous.gameTime() <= DUPLICATE_CLICK_TICKS) {
+            return true;
+        }
+        lastPickerSend.put(player.getUUID(), send);
 
         TradeOptimizer.LOGGER.info("Picker for {} level {}: {} trade options, pick {}",
                 profile.profession(), merchantLevel, available.size(), picksRequired);
@@ -680,15 +788,17 @@ public final class ProfileController {
         );
         if (!Services.NETWORK.canSendOpenPicker(player)) {
             TradeOptimizer.LOGGER.warn("Client can't receive OPEN_PICKER (mod missing on client?)");
-            return;
+            return false;
         }
         try {
             Services.NETWORK.sendOpenPicker(player, payload);
+            return true;
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("Failed to send picker payload ({} trades)",
                     available.size(), e);
             player.sendSystemMessage(Component.literal(
                     "Trade Optimizer: picker send failed (see server log)."));
+            return false;
         }
     }
 
