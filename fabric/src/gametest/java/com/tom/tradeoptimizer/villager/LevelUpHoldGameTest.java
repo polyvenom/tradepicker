@@ -110,6 +110,70 @@ public class LevelUpHoldGameTest {
         helper.succeed();
     }
 
+    /**
+     * A rank with nothing to choose must still be granted.
+     *
+     * When a rank's pool holds no more trades than the player must pick, there is nothing to
+     * choose, so the mod fills it automatically — and that path writes its picks directly rather
+     * than going through onPickerSubmit. It used to skip the level grant entirely, and because
+     * vanilla's own level-up is cancelled for managed villagers, nothing else would ever raise
+     * the rank: the villager stopped levelling for good. Reported against a max-level librarian,
+     * whose master rank is a single trade.
+     *
+     * Farmer's master rank is the stable two-option pool here — the game-test server's
+     * experimental Trade Rebalance datapack leaves farmer alone but inflates librarian's.
+     */
+    @GameTest
+    public void autoProgressedRankIsStillGranted(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 4);
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+
+        VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(),
+                "minecraft:farmer", owner.getUUID());
+        for (int lvl = 1; lvl <= 4; lvl++) profile.setPicks(lvl, firstTwoPicks(level, villager, lvl, helper));
+        VillagerProfileState.get(level).update(profile);
+
+        // Earn the master rank, then ask for its picker the way onInteract does.
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(4));
+        helper.assertTrue(ProfileController.isDueToLevelUp(villager),
+                "precondition: the villager should be due for its master rank");
+
+        ProfileController.sendPicker(owner, villager, profile, 5);
+
+        helper.assertValueEqual(villager.getVillagerData().level(), 5,
+                "rank after a no-choice level was auto-progressed");
+        helper.assertTrue(profile.isFilled(5),
+                "the auto-progressed rank's picks must be stored");
+
+        helper.succeed();
+    }
+
+    /** The grant only fires for the one rank above, and only once it's been earned. */
+    @GameTest
+    public void grantOnlyAppliesToTheEarnedNextRank(GameTestHelper helper) {
+        Villager villager = spawnFarmer(helper, 2);
+
+        villager.setVillagerXp(0);
+        helper.assertFalse(ProfileController.grantPendingLevel(villager, 3),
+                "no grant before the XP is earned");
+
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(2));
+        helper.assertFalse(ProfileController.grantPendingLevel(villager, 2),
+                "no grant for the rank the villager already holds");
+        helper.assertFalse(ProfileController.grantPendingLevel(villager, 4),
+                "no grant for a rank two steps ahead");
+        helper.assertValueEqual(villager.getVillagerData().level(), 2,
+                "rank after the rejected grants");
+
+        helper.assertTrue(ProfileController.grantPendingLevel(villager, 3),
+                "grant for the earned next rank");
+        helper.assertValueEqual(villager.getVillagerData().level(), 3,
+                "rank after the accepted grant");
+
+        helper.succeed();
+    }
+
     // -------------------------------------------------------------------------
 
     private static Villager spawnFarmer(GameTestHelper helper, int villagerLevel) {
