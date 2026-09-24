@@ -32,8 +32,9 @@ import java.util.Optional;
  *
  * The default config is min-price mode, so the test flips vanillaPricing on for the duration and
  * restores it. Each gametest body runs atomically on the server thread, so the flip is contained.
- * Farmer trades are flat (no biome/book gating, unaffected by the experimental Trade Rebalance
- * datapack) and several carry a randomized cost range, so the seed path is genuinely exercised.
+ * Farmer trades are flat (no biome/book gating, and untouched by trade_rebalance, which game
+ * tests always run with — see OwnershipGateGameTest) and several carry a randomized cost range,
+ * so the seed path is genuinely exercised.
  */
 public class PriceSeedGameTest {
 

@@ -120,8 +120,10 @@ public class LevelUpHoldGameTest {
      * the rank: the villager stopped levelling for good. Reported against a max-level librarian,
      * whose master rank is a single trade.
      *
-     * Farmer's master rank is the stable two-option pool here — the game-test server's
-     * experimental Trade Rebalance datapack leaves farmer alone but inflates librarian's.
+     * Farmer's master rank is the stable two-option pool here. Librarian's is a single trade in
+     * a normal game, which is where this was reported — but game tests always run with
+     * trade_rebalance on (see OwnershipGateGameTest), and that pack rewrites librarian, taking its
+     * master rank to 121 options. Farmer is one of the professions the pack doesn't touch.
      */
     @GameTest
     public void autoProgressedRankIsStillGranted(GameTestHelper helper) {

@@ -40,8 +40,11 @@ import java.util.UUID;
  * through the system messages the controller sends. Op status is granted with the real server op
  * list — ServerPlayer.permissions() resolves against it live, so no relog is needed.
  *
- * Farmer is used for its flat, biome-independent trades (unaffected by the gametest server's
- * experimental Trade Rebalance datapack).
+ * Farmer is used for its flat, biome-independent trades — and because trade_rebalance overrides
+ * only armorer and librarian, so farmer's pools here are the ones players actually have. That
+ * pack is always on in game tests: Minecraft's own GameTestServer builds its world with
+ * FeatureFlagRegistry.allFlags(), so every experimental feature is enabled and nothing the mod
+ * or the build script sets can turn them off. Prefer a profession the pack doesn't touch.
  */
 public class OwnershipGateGameTest {
 
@@ -193,9 +196,9 @@ public class OwnershipGateGameTest {
     /**
      * With vanillaBookLimits enabled, a profession with NO book trades (farmer) is unaffected: the
      * per-level book cap relaxes so the two non-book picks still go through (no softlock). The
-     * librarian book-cap path itself isn't headless-testable — the gametest server's experimental
-     * Trade Rebalance datapack returns null book previews, so 0 books enumerate — and is validated
-     * in the live game instead.
+     * librarian book-cap path itself isn't headless-testable — librarian is one of the two
+     * professions trade_rebalance overrides, and game tests always run with it on, where it
+     * returns null book previews so 0 books enumerate — and is validated in the live game.
      */
     @GameTest
     public void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {

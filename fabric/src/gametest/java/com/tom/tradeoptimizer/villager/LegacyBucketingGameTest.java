@@ -32,8 +32,8 @@ import java.util.List;
  * gated behind ServerPlayNetworking.canSend, which a headless mock player can't satisfy.
  *
  * Farmer is used because its level-1..4 trade pools all hold >2 trades, so every lower level's
- * cap is a stable 2 — and farmer trades are untouched by the gametest server's experimental Trade
- * Rebalance datapack.
+ * cap is a stable 2 — and because trade_rebalance, always on in game tests, leaves farmer alone
+ * (it overrides only armorer and librarian).
  */
 public class LegacyBucketingGameTest {
 
