@@ -6,7 +6,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
 import net.minecraft.world.entity.npc.villager.VillagerType;
@@ -79,7 +79,7 @@ public class VanillaInteractionGateGameTest {
     private static Villager spawnFarmer(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         var registries = level.registryAccess();
-        Villager villager = helper.spawnWithNoFreeWill(EntityTypes.VILLAGER, new BlockPos(1, 2, 1));
+        Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
                 .withType(registries, VillagerType.PLAINS)
                 .withProfession(registries, VillagerProfession.FARMER)
