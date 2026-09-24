@@ -336,8 +336,7 @@ public final class ProfileController {
         // Grant the held level-up now, so the rank and the trades the player chose for it arrive
         // together. This is the whole of vanilla's increaseMerchantCareer minus its random trade
         // roll, which is what the picker replaces.
-        if (levellingUp) {
-            villager.setVillagerData(villager.getVillagerData().withLevel(level));
+        if (levellingUp && grantPendingLevel(villager, level)) {
             currentLevel = level;
             TradeOptimizer.LOGGER.info("Levelled {} to {} on the player's picks",
                     profName, level);
@@ -656,6 +655,20 @@ public final class ProfileController {
     }
 
     /**
+     * Grant a held level-up, when {@code level} is the rank the picker was opened for.
+     *
+     * Must run BEFORE the picks are applied: applyToVillager only walks levels 1..current, so a
+     * rank granted afterwards would have its trades left out of the offer list.
+     *
+     * Package-private for LevelUpHoldGameTest.
+     */
+    static boolean grantPendingLevel(Villager villager, int level) {
+        if (level != villager.getVillagerData().level() + 1 || !isDueToLevelUp(villager)) return false;
+        villager.setVillagerData(villager.getVillagerData().withLevel(level));
+        return true;
+    }
+
+    /**
      * Vanilla's own {@code shouldIncreaseLevel} condition, recomputed here because the level-up it
      * guards is held by VillagerLevelUpMixin until the player has picked.
      *
@@ -692,7 +705,7 @@ public final class ProfileController {
      *         payload was sent, or the level auto-progressed and the merchant was opened here.
      *         false means nothing was shown and the caller should fall back to opening the merchant.
      */
-    private static boolean sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
+    static boolean sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
         ServerLevel level = player.level();
         VillagerProfession prof = villager.getVillagerData().profession().value();
         ResourceKey<TradeSet> tradeSetKey = prof.getTrades(merchantLevel);
@@ -735,21 +748,31 @@ public final class ProfileController {
             for (AvailableTrade trade : available) autoPicks.add(trade.key());
 
             VillagerProfileState state = VillagerProfileState.get(level);
+
+            // A rank with nothing to choose still has to be GRANTED. This path writes the picks
+            // itself instead of going through onPickerSubmit, so without this the villager sat at
+            // its old rank for good — vanilla's own level-up is cancelled for managed villagers,
+            // so nothing else would ever raise it. That is the max-level librarian that stopped
+            // levelling: its master rank offers a single trade, so it never reaches the picker.
+            boolean granted = grantPendingLevel(villager, merchantLevel);
+
             profile.setPicks(merchantLevel, autoPicks);
             state.update(profile);
 
             applyToVillager(level, villager, profile);
 
-            TradeOptimizer.LOGGER.info("Auto-progressed {} level {}: {} option(s), no choice needed",
-                    profile.profession(), merchantLevel, available.size());
+            TradeOptimizer.LOGGER.info("Auto-progressed {} level {}: {} option(s), no choice needed{}",
+                    profile.profession(), merchantLevel, available.size(),
+                    granted ? " (rank granted)" : "");
 
-            // This level needed no choice, but a banked level-up may have left another one
-            // waiting behind it — carry on down the chain before showing the merchant.
-            int next = firstUnfilledLevel(profile, villager.getVillagerData().level());
+            // This level needed no choice, but another may still be unpicked behind it — carry on
+            // down the chain before showing the merchant.
+            int currentLevel = villager.getVillagerData().level();
+            int next = firstUnfilledLevel(profile, currentLevel);
             if (next > 0 && next != merchantLevel) {
                 return sendPicker(player, villager, profile, next);
             }
-            openMerchant(villager, player, merchantLevel);
+            openMerchant(villager, player, currentLevel);
             return true;
         }
 
