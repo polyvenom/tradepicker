@@ -44,8 +44,8 @@ import java.util.UUID;
  *   2. STACKING: updateSpecialPrices accumulates, so if the reset-before-apply inside
  *      refreshSpecialPrices is ever dropped, re-opens compound the discount.
  *
- * Farmer is used for its flat, biome-independent trades (unaffected by the gametest
- * server's experimental Trade Rebalance datapack).
+ * Farmer is used for its flat, biome-independent trades, and because trade_rebalance — always
+ * on in game tests, see OwnershipGateGameTest — overrides only armorer and librarian.
  */
 public class ReputationPricingGameTest {
 
