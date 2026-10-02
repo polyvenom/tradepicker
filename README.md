@@ -69,17 +69,21 @@ Trade Picker skips the RNG entirely. You choose which trades a villager gets dir
 
 ## Install
 
-Trade Picker runs on **Fabric** for Minecraft 26.3, and on **Fabric** or **NeoForge** for Minecraft 26.2.
+Trade Picker runs on **Fabric** for Minecraft 26.3, 26.2 and 26.1.x. Each release carries one jar per Minecraft line — pick the one that matches your game:
 
-### Fabric, Minecraft 26.3
-1. Install [Fabric Loader](https://fabricmc.net/use/installer/) 0.19.5 or newer for Minecraft 26.3
+| Minecraft | Jar |
+|---|---|
+| 26.3 | `tradeoptimizer-fabric-<version>.jar` |
+| 26.2 | `tradeoptimizer-fabric-<version>+mc26.2.jar` |
+| 26.1, 26.1.1, 26.1.2 | `tradeoptimizer-fabric-<version>+mc26.1.jar` |
+
+1. Install [Fabric Loader](https://fabricmc.net/use/installer/) for your Minecraft version
 2. Install [Fabric API](https://modrinth.com/mod/fabric-api)
-3. Drop `tradeoptimizer-fabric-<version>.jar` into your `mods` folder
+3. Drop the matching jar into your `mods` folder
 
-### Minecraft 26.2
-Use Trade Picker 1.4.0, which covers both loaders on 26.2. NeoForge builds for 26.3 aren't available yet.
+**NeoForge:** the most recent NeoForge build is 1.3.0, for Minecraft 26.2.
 
-On a server: install on both server and client. Worlds carry over between loaders — the mod id and save data are identical, so a villager's picks survive moving the world from Fabric to NeoForge (or back). One small config file is optional (`config/tradeoptimizer.json`). Right-click a villager and it works.
+On a server: install on both server and client. One small config file is optional (`config/tradeoptimizer.json`). Right-click a villager and it works.
 
 ---
 
