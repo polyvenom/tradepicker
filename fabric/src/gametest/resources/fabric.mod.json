@@ -20,7 +20,9 @@
       "com.tom.tradeoptimizer.gametest.ConversionProfileGameTest",
       "com.tom.tradeoptimizer.villager.VanillaInteractionGateGameTest",
       "com.tom.tradeoptimizer.villager.LevelCatchUpGameTest",
-      "com.tom.tradeoptimizer.villager.LevelUpHoldGameTest"
+      "com.tom.tradeoptimizer.villager.LevelUpHoldGameTest",
+      "com.tom.tradeoptimizer.villager.ProfessionSweepGameTest",
+      "com.tom.tradeoptimizer.villager.TickedLevelUpGameTest"
     ]
   },
   "depends": {
