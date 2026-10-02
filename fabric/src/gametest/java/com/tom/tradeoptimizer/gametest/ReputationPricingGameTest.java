@@ -3,6 +3,7 @@ package com.tom.tradeoptimizer.gametest;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
+import com.tom.tradeoptimizer.villager.MerchantAccess;
 import com.tom.tradeoptimizer.villager.ProfileController;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
@@ -54,7 +55,7 @@ public class ReputationPricingGameTest {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper);
         UUID villagerId = villager.getUUID();
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = TestPlayers.near(helper);
 
         // 1) Pick two level-1 trades — builds the live offers through the real entry point.
         List<TradeKey> picks = firstTwoPicks(level, villager, helper);
@@ -80,7 +81,7 @@ public class ReputationPricingGameTest {
         // Re-open WITHOUT closing the previous menu — the wipe-on-reopen repro. The stale
         // MerchantMenu's teardown resets special prices mid-open; the discount must be
         // written after that, or the offers sent to the client carry diff 0.
-        ProfileController.onPickerSubmit(player, villagerId, 1, picks);
+        MerchantAccess.open(player, villager);
 
         offers = villager.getOffers();
         boolean anyDiscount = false;
@@ -99,14 +100,14 @@ public class ReputationPricingGameTest {
         // 3) Two more no-close re-opens: the diff must hold steady, not stack — and a
         //    properly closed session must come back discounted too.
         List<Integer> before = diffs(offers);
-        ProfileController.onPickerSubmit(player, villagerId, 1, picks);
-        ProfileController.onPickerSubmit(player, villagerId, 1, picks);
+        MerchantAccess.open(player, villager);
+        MerchantAccess.open(player, villager);
         List<Integer> after = diffs(villager.getOffers());
         helper.assertTrue(before.equals(after),
                 "discount changed across no-close re-opens: " + before + " -> " + after);
 
         player.closeContainer(); // vanilla resets special prices when trading stops
-        ProfileController.onPickerSubmit(player, villagerId, 1, picks);
+        MerchantAccess.open(player, villager);
         helper.assertTrue(before.equals(diffs(villager.getOffers())),
                 "discount not restored after a clean close/reopen cycle");
 
@@ -124,12 +125,12 @@ public class ReputationPricingGameTest {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper);
         UUID villagerId = villager.getUUID();
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
 
         List<TradeKey> picks = firstTwoPicks(level, villager, helper);
         ProfileController.onPickerSubmit(owner, villagerId, 1, picks);
         villager.getGossips().add(owner.getUUID(), GossipType.MAJOR_POSITIVE, 20);
-        ProfileController.onPickerSubmit(owner, villagerId, 1, picks);
+        MerchantAccess.open(owner, villager);
 
         boolean anyDiscount = false;
         for (MerchantOffer offer : villager.getOffers()) {
@@ -140,10 +141,11 @@ public class ReputationPricingGameTest {
         // A second, reputation-less player opens the same villager. Ops bypass the ownership
         // gate on onPickerSubmit, so promote the mock player the same way OwnershipGateGameTest
         // does — through the real op list.
-        ServerPlayer stranger = helper.makeMockServerPlayerInLevel();
+        ServerPlayer stranger = TestPlayers.near(helper);
         level.getServer().getPlayerList().op(stranger.nameAndId(),
                 Optional.of(LevelBasedPermissionSet.OWNER), Optional.empty());
-        ProfileController.onPickerSubmit(stranger, villagerId, 1, picks);
+        owner.closeContainer(); // the owner is done trading
+        MerchantAccess.open(stranger, villager);
 
         for (MerchantOffer offer : villager.getOffers()) {
             helper.assertTrue(offer.getSpecialPriceDiff() == 0,
