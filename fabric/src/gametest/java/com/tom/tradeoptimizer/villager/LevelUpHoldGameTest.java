@@ -151,6 +151,65 @@ public class LevelUpHoldGameTest {
         helper.succeed();
     }
 
+    /**
+     * A villager left stuck by 1.5.0 must be rescued on its next right-click.
+     *
+     * 1.5.0's no-choice path saved the rank's picks but never granted the rank. So a player
+     * upgrading from it can have a villager in exactly this state: the rank's XP earned, its picks
+     * already stored, the rank itself never given. The picker treats a rank with stored picks as
+     * done, so without a rescue the villager would sit one rank short forever, with those picks
+     * never reaching its offer list (applyToVillager only walks levels up to the current rank).
+     */
+    @GameTest
+    public void villagerStuckByAnEarlierBuildIsRescued(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 4);
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+
+        VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(),
+                "minecraft:farmer", owner.getUUID());
+        for (int lvl = 1; lvl <= 5; lvl++) profile.setPicks(lvl, firstTwoPicks(level, villager, lvl, helper));
+        VillagerProfileState.get(level).update(profile);
+        ProfileController.applyToVillager(level, villager, profile);
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(4));
+        int offersBefore = villager.getOffers().size();
+
+        ProfileController.grantRanksAlreadyPicked(level, villager, profile);
+
+        helper.assertValueEqual(villager.getVillagerData().level(), 5,
+                "rank of a stuck villager after the rescue");
+        helper.assertTrue(villager.getOffers().size() > offersBefore,
+                "the rescued rank's stored picks must reach the offer list");
+
+        helper.succeed();
+    }
+
+    /** The rescue only grants ranks that are both earned and already picked. */
+    @GameTest
+    public void rescueLeavesUnpickedOrUnearnedRanksAlone(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 2);
+        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+
+        VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(),
+                "minecraft:farmer", owner.getUUID());
+        for (int lvl = 1; lvl <= 2; lvl++) profile.setPicks(lvl, firstTwoPicks(level, villager, lvl, helper));
+        VillagerProfileState.get(level).update(profile);
+
+        // Earned but not picked: the picker has to run for it, not the rescue.
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(2));
+        ProfileController.grantRanksAlreadyPicked(level, villager, profile);
+        helper.assertValueEqual(villager.getVillagerData().level(), 2, "rank with the next rank unpicked");
+
+        // Picked but not earned: no rank without the XP for it.
+        profile.setPicks(3, firstTwoPicks(level, villager, 3, helper));
+        villager.setVillagerXp(0);
+        ProfileController.grantRanksAlreadyPicked(level, villager, profile);
+        helper.assertValueEqual(villager.getVillagerData().level(), 2, "rank with the next rank unearned");
+
+        helper.succeed();
+    }
+
     /** The grant only fires for the one rank above, and only once it's been earned. */
     @GameTest
     public void grantOnlyAppliesToTheEarnedNextRank(GameTestHelper helper) {
