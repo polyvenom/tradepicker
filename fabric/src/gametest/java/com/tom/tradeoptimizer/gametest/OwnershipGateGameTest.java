@@ -56,7 +56,7 @@ public class OwnershipGateGameTest {
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
 
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
 
         // Owner picks level 1 -> accepted, claims ownership.
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
@@ -94,15 +94,16 @@ public class OwnershipGateGameTest {
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
 
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        owner.closeContainer(); // the owner walks away, so only the ownership rule can refuse the intruder
         helper.assertTrue(state.get(villagerId).picksFor(1).size() == 2,
                 "precondition: owner's level-1 picks stored");
 
         villager.setVillagerData(villager.getVillagerData().withLevel(2));
 
         // A different player (not owner, not op) tries to pick level 2 -> rejected.
-        ServerPlayer intruder = helper.makeMockServerPlayerInLevel();
+        ServerPlayer intruder = TestPlayers.near(helper);
         ProfileController.onPickerSubmit(intruder, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         VillagerProfile p = state.get(villagerId);
         helper.assertTrue(p.picksFor(2).isEmpty(), "non-owner submit must NOT store level-2 picks");
@@ -129,8 +130,9 @@ public class OwnershipGateGameTest {
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
 
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        owner.closeContainer(); // the owner walks away: the villager is free for someone else
 
         villager.setVillagerData(villager.getVillagerData().withLevel(2));
 
@@ -138,7 +140,7 @@ public class OwnershipGateGameTest {
         // the server default — the gametest server's operatorUserPermissions() sits below
         // GAMEMASTERS, so a bare op() wouldn't clear the command-level check. permissions() reads
         // the op list live, so this takes effect immediately.
-        ServerPlayer op = helper.makeMockServerPlayerInLevel();
+        ServerPlayer op = TestPlayers.near(helper);
         level.getServer().getPlayerList().op(op.nameAndId(),
                 Optional.of(LevelBasedPermissionSet.OWNER), Optional.empty());
         helper.assertTrue(
@@ -175,7 +177,7 @@ public class OwnershipGateGameTest {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
 
         // Submitting picks applies offers and opens the merchant (setTradingPlayer + openTradingScreen),
         // so afterward the player has a live trade session — exactly the state a reset fires from.
@@ -206,7 +208,7 @@ public class OwnershipGateGameTest {
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
         VillagerProfileState state = VillagerProfileState.get(level);
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
 
         TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
         boolean original = cfg.vanillaBookLimits();

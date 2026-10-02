@@ -19,6 +19,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerData;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
+import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.SpawnEggItem;
@@ -66,6 +67,34 @@ public final class ProfileController {
         return player.permissions().hasPermission(OP_PERMISSION);
     }
 
+    /** Reach leeway past the player's entity interaction range — what vanilla allows an open container. */
+    private static final double REACH_LEEWAY = 4.0;
+
+    /**
+     * The one trust gate every player action on a villager passes: the right-click path and both
+     * packet handlers (issue #9). A modified client can send a submit or reset for any villager UUID
+     * it has seen, from anywhere, so the server re-checks what the vanilla interaction path would
+     * have guaranteed — the villager is alive in the player's own level, within reach, and not
+     * mid-trade with someone else.
+     *
+     * Package-private for ActionGateGameTest.
+     */
+    static boolean canAct(ServerPlayer player, Villager villager) {
+        if (!villager.isAlive() || villager.level() != player.level()) return false;
+        if (!player.isWithinEntityInteractionRange(villager, REACH_LEEWAY)) return false;
+        var trader = villager.getTradingPlayer();
+        return trader == null || trader == player;
+    }
+
+    /**
+     * May this player write picks for this villager? Its owner, or an op. An unowned villager
+     * (no profile yet, or a grandfathered one) belongs to whoever claims it first.
+     */
+    private static boolean mayEdit(ServerPlayer player, VillagerProfile profile) {
+        return profile == null || profile.owner().isEmpty()
+                || profile.owner().get().equals(player.getUUID()) || isOp(player);
+    }
+
     /**
      * Players whose client lacks the mod, who we've already nudged once. Stops the
      * fallback notice from spamming on every right-click. Lives for the server's lifetime
@@ -101,6 +130,12 @@ public final class ProfileController {
 
         // Nitwits and unemployed villagers can't trade — bail.
         if (profHolder.is(VillagerProfession.NITWIT) || profHolder.is(VillagerProfession.NONE)) {
+            return true;
+        }
+
+        // Dying, or busy trading with someone else: hand the click to vanilla, which refuses it
+        // the same way it always has.
+        if (!canAct(player, villager)) {
             return true;
         }
 
@@ -184,6 +219,20 @@ public final class ProfileController {
         grantRanksAlreadyPicked(level, villager, profile);
         merchantLevel = villager.getVillagerData().level();
 
+        // Only the owner (or an op) chooses trades — including the no-choice auto-fill inside
+        // sendPicker, which writes picks just like a submit does. Anyone else trades with what the
+        // owner has set up so far.
+        if (!mayEdit(player, profile)) {
+            MerchantOffers live = villager.getOffers();
+            if (live == null || live.isEmpty()) {
+                player.sendSystemMessage(Component.literal(
+                        "Trade Picker: this villager's owner hasn't picked its trades yet."));
+                return false;
+            }
+            openMerchant(villager, player, merchantLevel);
+            return false;
+        }
+
         // Pick for the LOWEST level still unpicked, not just the current one. Vanilla banks
         // level-ups while the player is trading and applies them after the screen closes, so a
         // villager can easily arrive here two levels ahead of its picks.
@@ -227,8 +276,29 @@ public final class ProfileController {
             player.sendSystemMessage(Component.literal("Villager not found."));
             return;
         }
+        if (!canAct(player, villager)) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: {} can't act on villager {} (dead, out of reach, or busy)",
+                    player.getName().getString(), villagerId);
+            return;
+        }
         VillagerProfession prof = villager.getVillagerData().profession().value();
         String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(prof).toString();
+
+        // Ownership first: it's cheap, and nothing below should run for someone who may not edit.
+        VillagerProfileState state = VillagerProfileState.get(sl);
+        VillagerProfile profile = state.get(villagerId);
+        if (!mayEdit(player, profile)) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: villager {} owned by {}, not {}",
+                    villagerId, profile.owner().get(), player.getUUID());
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: this villager belongs to another player."));
+            return;
+        }
+        // A level is picked once. Re-picking goes through Reset, which starts the villager over.
+        if (profile != null && profile.isFilled(level)) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: level {} of villager {} is already picked", level, villagerId);
+            return;
+        }
 
         // The picks list arrives from the client and CANNOT be trusted. Without these
         // checks a modified client could submit any villager-trade id (or any synthetic
@@ -267,10 +337,16 @@ public final class ProfileController {
         for (AvailableTrade t : available) validIds.add(t.key().id());
 
         List<TradeKey> validatedPicks = new ArrayList<>(picks.size());
+        Set<Identifier> seen = new HashSet<>();
         for (TradeKey k : picks) {
-            if (validIds.contains(k.id())) validatedPicks.add(k);
-            else TradeOptimizer.LOGGER.warn("[submit] dropped invalid pick {} for {} level {}",
-                    k.id(), profName, level);
+            if (!validIds.contains(k.id())) {
+                TradeOptimizer.LOGGER.warn("[submit] dropped invalid pick {} for {} level {}", k.id(), profName, level);
+            } else if (!seen.add(k.id())) {
+                // The picker selects distinct cards, so a repeated key is a crafted packet.
+                TradeOptimizer.LOGGER.warn("[submit] dropped duplicate pick {} for {} level {}", k.id(), profName, level);
+            } else {
+                validatedPicks.add(k);
+            }
         }
         if (validatedPicks.isEmpty()) {
             player.sendSystemMessage(Component.literal(
@@ -296,9 +372,8 @@ public final class ProfileController {
         // Mirror sendPicker's hidePickedTrades filtering so this cap is computed from the same
         // card list the client actually saw — otherwise a filtered pool with few non-book cards
         // could produce a laxer client cap than the full-pool cap and reject a legitimate submit.
-        VillagerProfile profileForCap = VillagerProfileState.get(sl).get(villagerId);
-        List<AvailableTrade> shownToClient = profileForCap == null ? available
-                : effectiveAvailable(available, ownedTradeKeys(profileForCap, available), picksRequired);
+        List<AvailableTrade> shownToClient = profile == null ? available
+                : effectiveAvailable(available, ownedTradeKeys(profile, available), picksRequired);
         int bookCap = bookPickCap(sl, villager, tradeSetKey, shownToClient, picksRequired);
         int bookPicks = 0;
         for (TradeKey k : validatedPicks) {
@@ -312,21 +387,6 @@ public final class ProfileController {
             return;
         }
 
-        VillagerProfileState state = VillagerProfileState.get(sl);
-        VillagerProfile profile = state.get(villagerId);
-        // If a profile already exists with a different owner, refuse — only the owner
-        // (or an op) may overwrite picks. Without this, a non-owner who somehow reached
-        // an unfilled level (e.g. after the villager leveled up while owner was offline)
-        // could replace the owner's planned trades.
-        if (profile != null && profile.owner().isPresent()
-                && !profile.owner().get().equals(player.getUUID())
-                && !isOp(player)) {
-            TradeOptimizer.LOGGER.warn("[submit] rejected: villager {} owned by {}, not {}",
-                    villagerId, profile.owner().get(), player.getUUID());
-            player.sendSystemMessage(Component.literal(
-                    "Trade Picker: this villager belongs to another player."));
-            return;
-        }
         if (profile == null) {
             // Shouldn't normally happen — picker only opens after onInteract creates a
             // profile. Belt-and-braces: claim ownership now.
@@ -394,6 +454,11 @@ public final class ProfileController {
     public static void onReset(ServerPlayer player, UUID villagerId) {
         ServerLevel sl = player.level();
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) return;
+        if (!canAct(player, villager)) {
+            TradeOptimizer.LOGGER.warn("[reset] rejected: {} can't act on villager {} (dead, out of reach, or busy)",
+                    player.getName().getString(), villagerId);
+            return;
+        }
 
         // Reset is destructive (wipes XP, level, and locked-in trades). Lock it to the
         // owner — vanilla already scopes reputation per-player, so per-player ownership
@@ -444,10 +509,13 @@ public final class ProfileController {
         // menu fails MerchantMenu.stillValid() on the next tick and self-closes after one frame
         // (the "first reopen after reset flashes, second is fine" bug). Tear the stale session down
         // now so the next open starts from a clean slate.
-        if (player.containerMenu != player.inventoryMenu) {
-            player.closeContainer();
+        //
+        // Only THIS villager's session: a reset packet must not close whatever else the sender has
+        // open (issue #9). canAct above guarantees the villager trades with this player or no one.
+        if (villager.getTradingPlayer() == player) {
+            if (player.containerMenu instanceof MerchantMenu) player.closeContainer();
+            villager.setTradingPlayer(null);
         }
-        villager.setTradingPlayer(null);
 
         player.sendSystemMessage(Component.literal(
                 "Villager reset to Novice. Right-click to pick new trades."));
@@ -482,7 +550,7 @@ public final class ProfileController {
      * never resets prices on a non-null player) means the offers sent to the client are
      * the discounted ones, no matter how many times the open is re-entered.
      */
-    private static void openMerchant(Villager villager, ServerPlayer player, int merchantLevel) {
+    static void openMerchant(Villager villager, ServerPlayer player, int merchantLevel) {
         if (player.containerMenu != player.inventoryMenu) {
             player.closeContainer();
         }
