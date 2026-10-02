@@ -1,11 +1,13 @@
 package com.tom.tradeoptimizer.villager;
 
+import com.tom.tradeoptimizer.gametest.TestPlayers;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
@@ -15,7 +17,8 @@ import net.minecraft.world.item.Items;
 
 /**
  * Guards the gate that decides when a right-click is handed back to vanilla instead of opening
- * the picker ({@link ProfileController#isVanillaItemInteraction}).
+ * the picker ({@link ProfileController#leaveToVanilla}, and its item rule
+ * {@link ProfileController#isVanillaItemInteraction}).
  *
  * The rule has to match Mob.checkAndHandleImportantInteractions exactly. Too narrow and villagers
  * can't be named (the CurseForge report that prompted this); too wide and the click falls through
@@ -75,6 +78,48 @@ public class VanillaInteractionGateGameTest {
     }
 
     // -------------------------------------------------------------------------
+
+    /** An ordinary empty-hand click on a working adult villager is ours: it opens the picker. */
+    @GameTest
+    public void plainClickStaysWithThePicker(GameTestHelper helper) {
+        Villager villager = spawnFarmer(helper);
+        ServerPlayer player = TestPlayers.near(helper);
+        helper.assertFalse(ProfileController.leaveToVanilla(player, villager),
+                "an empty-hand click on an awake adult farmer must open the picker");
+        helper.succeed();
+    }
+
+    /** Vanilla refuses to trade with a baby or a sleeping villager, and so must the picker (issue #10). */
+    @GameTest
+    public void babiesAndSleepersAreLeftToVanilla(GameTestHelper helper) {
+        ServerPlayer player = TestPlayers.near(helper);
+
+        Villager sleeper = spawnFarmer(helper);
+        sleeper.setSleepingPos(sleeper.blockPosition());
+        helper.assertTrue(sleeper.isSleeping(), "precondition: the villager is asleep");
+        helper.assertTrue(ProfileController.leaveToVanilla(player, sleeper),
+                "a sleeping villager must be left to vanilla, which refuses the trade");
+        sleeper.discard();
+
+        Villager baby = spawnFarmer(helper);
+        baby.setBaby(true);
+        helper.assertTrue(ProfileController.leaveToVanilla(player, baby),
+                "a baby must be left to vanilla, which shakes its head");
+        helper.succeed();
+    }
+
+    /** Nitwits and the unemployed can't trade, so their clicks go to vanilla. */
+    @GameTest
+    public void nonTradersAreLeftToVanilla(GameTestHelper helper) {
+        ServerPlayer player = TestPlayers.near(helper);
+        Villager villager = spawnFarmer(helper);
+        var registries = helper.getLevel().registryAccess();
+        villager.setVillagerData(villager.getVillagerData().withProfession(registries, VillagerProfession.NITWIT));
+        helper.assertTrue(ProfileController.leaveToVanilla(player, villager), "a nitwit must be left to vanilla");
+        villager.setVillagerData(villager.getVillagerData().withProfession(registries, VillagerProfession.NONE));
+        helper.assertTrue(ProfileController.leaveToVanilla(player, villager), "an unemployed villager must be left to vanilla");
+        helper.succeed();
+    }
 
     private static Villager spawnFarmer(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
