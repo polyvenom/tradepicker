@@ -87,6 +87,26 @@ public final class ProfileController {
     }
 
     /**
+     * Clicks the mod hands straight to vanilla, so vanilla does exactly what it always does with
+     * them (issue #10):
+     *  - the two item interactions vanilla settles before trading (a named name tag, a matching
+     *    spawn egg). Anything else stays with us: a blanket pass-through (e.g. on sneak) would drop
+     *    the player into vanilla's own trade window, whose random rolls would then compete with the
+     *    picker's trades on the same villager;
+     *  - villagers that can't trade at all (nitwits, the unemployed);
+     *  - the clicks vanilla refuses: a baby (it shakes its head), a sleeping villager, one that's
+     *    dying or busy trading with someone else (canAct).
+     *
+     * Package-private for VanillaInteractionGateGameTest: onInteract itself needs a modded client.
+     */
+    static boolean leaveToVanilla(ServerPlayer player, Villager villager) {
+        if (isVanillaItemInteraction(player.getMainHandItem(), villager)) return true;
+        Holder<VillagerProfession> prof = villager.getVillagerData().profession();
+        if (prof.is(VillagerProfession.NITWIT) || prof.is(VillagerProfession.NONE)) return true;
+        return villager.isBaby() || villager.isSleeping() || !canAct(player, villager);
+    }
+
+    /**
      * May this player write picks for this villager? Its owner, or an op. An unowned villager
      * (no profile yet, or a grandfathered one) belongs to whoever claims it first.
      */
@@ -119,24 +139,8 @@ public final class ProfileController {
         Holder<VillagerProfession> profHolder = data.profession();
         String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(profHolder.value()).toString();
 
-        // Step aside only for the item interactions vanilla resolves BEFORE trading — a
-        // named name tag or a matching spawn egg. Anything else stays with us: a blanket
-        // pass-through (e.g. on sneak) drops the player into vanilla's own trade window,
-        // which must never be reachable or the picker's trades and vanilla's rolls end up
-        // competing for the same villager.
-        if (isVanillaItemInteraction(player.getMainHandItem(), villager)) {
+        if (leaveToVanilla(player, villager)) {
             return true; // PASS to vanilla
-        }
-
-        // Nitwits and unemployed villagers can't trade — bail.
-        if (profHolder.is(VillagerProfession.NITWIT) || profHolder.is(VillagerProfession.NONE)) {
-            return true;
-        }
-
-        // Dying, or busy trading with someone else: hand the click to vanilla, which refuses it
-        // the same way it always has.
-        if (!canAct(player, villager)) {
-            return true;
         }
 
         // If the player's client doesn't have Trade Picker, we can't show the picker.
