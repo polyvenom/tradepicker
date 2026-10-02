@@ -179,6 +179,11 @@ public final class ProfileController {
                     villager.getUUID(), player.getName().getString());
         }
 
+        // A rank can be earned AND already picked but never granted — the state 1.5.0 left
+        // villagers in. Grant it before anything else reads the rank.
+        grantRanksAlreadyPicked(level, villager, profile);
+        merchantLevel = villager.getVillagerData().level();
+
         // Pick for the LOWEST level still unpicked, not just the current one. Vanilla banks
         // level-ups while the player is trading and applies them after the screen closes, so a
         // villager can easily arrive here two levels ahead of its picks.
@@ -652,6 +657,35 @@ public final class ProfileController {
             if (!hide.contains(t.key().id())) out.add(t);
         }
         return out.size() >= picksRequired ? out : available;
+    }
+
+    /**
+     * Grant every held rank whose picks are already stored, then rebuild the offers.
+     *
+     * 1.5.0's no-choice path saved a rank's picks but never granted the rank, so a villager it
+     * touched can carry exactly this state: the XP earned, the picks stored, the rank never given.
+     * The picker treats a rank with stored picks as done and won't reopen for it, so without this
+     * the villager would stay one rank short for good — and since applyToVillager only walks
+     * levels up to the current rank, those stored picks would never reach its offers either.
+     *
+     * Grants only what is both earned (vanilla's own threshold) and already picked; a rank that
+     * still needs choosing is left for the picker.
+     *
+     * Package-private for LevelUpHoldGameTest.
+     */
+    static void grantRanksAlreadyPicked(ServerLevel level, Villager villager, VillagerProfile profile) {
+        int before = villager.getVillagerData().level();
+        while (isDueToLevelUp(villager)
+                && profile.isFilled(villager.getVillagerData().level() + 1)
+                && grantPendingLevel(villager, villager.getVillagerData().level() + 1)) {
+            // grantPendingLevel raised the rank; loop in case the XP covers another.
+        }
+        int after = villager.getVillagerData().level();
+        if (after != before) {
+            applyToVillager(level, villager, profile);
+            TradeOptimizer.LOGGER.info("Granted {} from level {} to {} on picks already stored",
+                    profile.profession(), before, after);
+        }
     }
 
     /**
