@@ -1,5 +1,6 @@
 package com.tom.tradeoptimizer.villager;
 
+import com.tom.tradeoptimizer.gametest.TestPlayers;
 import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
@@ -121,7 +122,7 @@ public class ProfessionSweepGameTest {
     @GameTest(maxTicks = 400)
     public void everyProfessionLevelsToMasterAndTakesTheCureDiscount(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = TestPlayers.near(helper);
         VillagerProfileState state = VillagerProfileState.get(level);
         List<String> problems = new ArrayList<>();
         int offersChecked = 0;
@@ -182,8 +183,7 @@ public class ProfessionSweepGameTest {
                 villager.getGossips().add(player.getUUID(), GossipType.MAJOR_POSITIVE, 20);
                 villager.getGossips().add(player.getUUID(), GossipType.MINOR_POSITIVE, 25);
                 int reputation = villager.getPlayerReputation(player);
-                ProfileController.onPickerSubmit(player, villager.getUUID(), MAX_LEVEL,
-                        profile.picksFor(MAX_LEVEL));
+                MerchantAccess.open(player, villager);
 
                 for (MerchantOffer offer : villager.getOffers()) {
                     offersChecked++;

@@ -1,5 +1,6 @@
 package com.tom.tradeoptimizer.villager;
 
+import com.tom.tradeoptimizer.gametest.TestPlayers;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
@@ -59,7 +60,7 @@ public class TickedLevelUpGameTest {
     public void managedVillagerIsHeldThroughTheQueuedLevelUp(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = TestPlayers.near(helper);
 
         ProfileController.onPickerSubmit(player, villager.getUUID(), 1, firstTwoPicks(level, villager, 1));
         stopTrading(player, villager);
@@ -88,7 +89,7 @@ public class TickedLevelUpGameTest {
     public void resetStaysNoviceThroughAQueuedLevelUp(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
-        ServerPlayer player = helper.makeMockServerPlayerInLevel();
+        ServerPlayer player = TestPlayers.near(helper);
 
         ProfileController.onPickerSubmit(player, villager.getUUID(), 1, firstTwoPicks(level, villager, 1));
         stopTrading(player, villager);

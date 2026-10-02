@@ -1,5 +1,6 @@
 package com.tom.tradeoptimizer.villager;
 
+import com.tom.tradeoptimizer.gametest.TestPlayers;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
@@ -65,7 +66,7 @@ public class LevelUpHoldGameTest {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
 
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         helper.assertValueEqual(villager.getVillagerData().level(), 1,
@@ -94,7 +95,7 @@ public class LevelUpHoldGameTest {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 1);
         UUID villagerId = villager.getUUID();
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
 
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         villager.setVillagerXp(0);
@@ -129,7 +130,7 @@ public class LevelUpHoldGameTest {
     public void autoProgressedRankIsStillGranted(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 4);
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
 
         VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(),
                 "minecraft:farmer", owner.getUUID());
@@ -164,7 +165,7 @@ public class LevelUpHoldGameTest {
     public void villagerStuckByAnEarlierBuildIsRescued(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 4);
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
 
         VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(),
                 "minecraft:farmer", owner.getUUID());
@@ -189,7 +190,7 @@ public class LevelUpHoldGameTest {
     public void rescueLeavesUnpickedOrUnearnedRanksAlone(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper, 2);
-        ServerPlayer owner = helper.makeMockServerPlayerInLevel();
+        ServerPlayer owner = TestPlayers.near(helper);
 
         VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(),
                 "minecraft:farmer", owner.getUUID());

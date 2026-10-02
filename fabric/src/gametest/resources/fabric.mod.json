@@ -22,7 +22,8 @@
       "com.tom.tradeoptimizer.villager.LevelCatchUpGameTest",
       "com.tom.tradeoptimizer.villager.LevelUpHoldGameTest",
       "com.tom.tradeoptimizer.villager.ProfessionSweepGameTest",
-      "com.tom.tradeoptimizer.villager.TickedLevelUpGameTest"
+      "com.tom.tradeoptimizer.villager.TickedLevelUpGameTest",
+      "com.tom.tradeoptimizer.villager.ActionGateGameTest"
     ]
   },
   "depends": {
