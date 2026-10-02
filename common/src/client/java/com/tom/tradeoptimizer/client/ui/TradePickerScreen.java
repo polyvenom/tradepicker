@@ -58,6 +58,8 @@ public final class TradePickerScreen extends Screen {
     /** Pre-computed display data per trade — never changes for this session. */
     private final List<String> cardLabels = new ArrayList<>();
     private final List<String> cardTooltips = new ArrayList<>();
+    /** What the search box matches: the trade itself, never the annotations around it (#18). */
+    private final List<String> cardSearch = new ArrayList<>();
 
     /** Cards this villager already sells (earlier-level picks / legacy) — marked, still pickable. */
     private final Set<Integer> ownedIndices = new HashSet<>();
@@ -72,6 +74,8 @@ public final class TradePickerScreen extends Screen {
     private Button confirmBtn;
     private Button cancelBtn;
     private int scrollRow = 0;
+    /** Survives init(): a resize or GUI-scale change rebuilds every widget (#18). */
+    private String searchQuery = "";
 
     /**
      * Set once Confirm is pressed. The screen deliberately stays up while the server works:
@@ -99,6 +103,7 @@ public final class TradePickerScreen extends Screen {
         // Pre-compute display data once.
         cardLabels.clear();
         cardTooltips.clear();
+        cardSearch.clear();
         ownedIndices.clear();
         Set<Identifier> ownedIds = new HashSet<>();
         for (var key : data.ownedKeys()) ownedIds.add(key.id());
@@ -107,10 +112,15 @@ public final class TradePickerScreen extends Screen {
             boolean owned = ownedIds.contains(trade.key().id());
             if (owned) ownedIndices.add(i);
             cardLabels.add(buildCardLabel(trade));
-            cardTooltips.add(buildTooltip(trade) + (owned ? "  (already on this villager)" : ""));
+            String text = buildTooltip(trade);
+            cardSearch.add(text.toLowerCase(Locale.ROOT));
+            String note = OfferFactory.headlineEnchantId(trade.key()).isPresent()
+                    ? "  (you choose the headline; level + bonuses rolled by the game)" : "";
+            cardTooltips.add(text + note + (owned ? "  (already on this villager)" : ""));
         }
         rebuildSortOrder();
-        rebuildFilter("");
+        rebuildFilter(searchQuery);
+        scrollRow = Math.min(scrollRow, maxScroll()); // a bigger window can show more rows: don't strand the view
 
         titleText = String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
                 shortProf(data.profession()), levelName(data.level()), data.picksRequired());
@@ -125,7 +135,9 @@ public final class TradePickerScreen extends Screen {
         searchBox = new EditBox(this.font, boxX, 44, boxW, 18, Component.literal("Search"));
         searchBox.setMaxLength(48);
         searchBox.setHint(Component.literal("Search trades (e.g. 'mending', 'sharp', 'emerald')"));
+        searchBox.setValue(searchQuery);
         searchBox.setResponder(text -> {
+            searchQuery = text;
             scrollRow = 0;
             rebuildFilter(text);
         });
@@ -134,13 +146,18 @@ public final class TradePickerScreen extends Screen {
         confirmBtn = Button.builder(Component.literal("Confirm"), b -> onConfirm())
                 .bounds(this.width / 2 - 84, this.height - 30, 80, 20)
                 .build();
-        confirmBtn.active = false;
         addRenderableWidget(confirmBtn);
 
         cancelBtn = Button.builder(Component.literal("Cancel"), b -> onClose())
                 .bounds(this.width / 2 + 4, this.height - 30, 80, 20)
                 .build();
         addRenderableWidget(cancelBtn);
+
+        // init() runs again on every resize or GUI-scale change, and the selection survives it.
+        // The buttons must agree with it: Confirm went dark while the status still read "2/2" (#18).
+        confirmBtn.active = !submitted && selectedIndices.size() == data.picksRequired();
+        cancelBtn.active = !submitted;
+        if (submitted) statusText = "Applying picks...";
     }
 
     /**
@@ -209,7 +226,7 @@ public final class TradePickerScreen extends Screen {
         }
         String q = query.toLowerCase(Locale.ROOT).trim();
         for (int i : sortedOrder) {
-            if (cardTooltips.get(i).toLowerCase(Locale.ROOT).contains(q)) {
+            if (cardSearch.get(i).contains(q)) {
                 filtered.add(i);
             }
         }
@@ -403,9 +420,6 @@ public final class TradePickerScreen extends Screen {
             sb.append(r.getHoverName().getString());
         } else if (!r.getEnchantments().isEmpty()) {
             sb.append(r.getHoverName().getString()).append(" — ").append(allEnchantsDisplay(r.getEnchantments()));
-            if (OfferFactory.headlineEnchantId(trade.key()).isPresent()) {
-                sb.append("  (you choose the headline; level + bonuses rolled by the game)");
-            }
         } else {
             sb.append(r.getHoverName().getString());
         }
@@ -519,7 +533,9 @@ public final class TradePickerScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if (scrollY != 0 && maxScroll() > 0) {
+        if (scrollY != 0) {
+            // Always clamp, even when everything fits: a row left over from a smaller window must be
+            // scrollable back, or the view sticks showing only the trailing cards (#18).
             scrollRow = Math.max(0, Math.min(maxScroll(), scrollRow - (int) Math.signum(scrollY)));
             return true;
         }
