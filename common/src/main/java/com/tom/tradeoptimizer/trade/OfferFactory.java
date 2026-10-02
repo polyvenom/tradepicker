@@ -176,24 +176,20 @@ public final class OfferFactory {
                                                         TradeSet tradeSet, VillagerTrade template,
                                                         HolderLookup.Provider registries) {
         List<AvailableTrade> out = new ArrayList<>();
-        List<Holder<Enchantment>> tradeable = tradeableEnchantments(registries);
+        List<Holder<Enchantment>> pool = bookPool(level, villager, tradeSet, template);
 
-        for (int enchIdx = 0; enchIdx < tradeable.size(); enchIdx++) {
-            Holder<Enchantment> ench = tradeable.get(enchIdx);
+        for (int enchIdx = 0; enchIdx < pool.size(); enchIdx++) {
+            Holder<Enchantment> ench = pool.get(enchIdx);
             Optional<ResourceKey<Enchantment>> enchKey = ench.unwrapKey();
             if (enchKey.isEmpty()) continue;
 
-            int minLvl = ench.value().getMinLevel();
-            int maxLvl = ench.value().getMaxLevel();
-
-            for (int lvl = minLvl; lvl <= maxLvl; lvl++) {
-                int levelOffset = lvl - minLvl;
+            for (int lvl = ench.value().getMinLevel(); lvl <= ench.value().getMaxLevel(); lvl++) {
                 try {
                     TradeKey bookKey = buildSyntheticBookKey(enchKey.get().identifier(), lvl);
                     LootContext ctx = buildContext(level, villager, tradeSet,
-                            new IndexBiasedRandomSource(bookCostFallback(villager, bookKey), enchIdx, levelOffset));
+                            bookSource(bookCostFallback(villager, bookKey), enchIdx, ench, lvl));
                     MerchantOffer offer = template.getOffer(ctx);
-                    if (offer == null || !offer.getResult().is(Items.ENCHANTED_BOOK)) continue;
+                    if (offer == null || !sells(offer, ench, lvl)) continue;
                     out.add(new AvailableTrade(bookKey, offer));
                 } catch (Exception e) {
                     // Skip on failure — some enchantments may not be valid for this trade.
@@ -201,6 +197,67 @@ public final class OfferFactory {
             }
         }
         return out;
+    }
+
+    /** Guards an endless probe on a misbehaving template. Vanilla's tradeable tag is ~40 entries. */
+    private static final int MAX_BOOK_POOL = 256;
+
+    /**
+     * The enchantments a book template can roll, in the order its own random pick indexes them.
+     *
+     * Read from the template rather than assumed (issue #16). Vanilla's template draws from
+     * #minecraft:tradeable, but a datapack's — e.g. Trade Rebalance's biome librarians — draws from
+     * its own list. Steering by the tag's index into a different list labelled cards with one
+     * enchantment while they sold another, and indices past the end clamped onto the last entry.
+     *
+     * Probed by steering the pick to index 0, 1, 2... and reading back what was rolled. An index
+     * past the end clamps to the last entry, so a repeat marks the end of the list.
+     */
+    private static List<Holder<Enchantment>> bookPool(ServerLevel level, Villager villager,
+                                                      TradeSet tradeSet, VillagerTrade template) {
+        List<Holder<Enchantment>> pool = new ArrayList<>();
+        for (int i = 0; i < MAX_BOOK_POOL; i++) {
+            Holder<Enchantment> rolled;
+            try {
+                MerchantOffer probe = template.getOffer(
+                        buildContext(level, villager, tradeSet, new IndexBiasedRandomSource(i, 0)));
+                rolled = probe == null ? null : storedEnchantment(probe.getResult());
+            } catch (Exception e) {
+                rolled = null;
+            }
+            if (rolled == null || (!pool.isEmpty() && pool.get(pool.size() - 1).equals(rolled))) break;
+            pool.add(rolled);
+        }
+        return pool;
+    }
+
+    /**
+     * Steers a book template to {@code ench} at {@code lvl}: the pool index, then the level offset.
+     *
+     * The level slot is only there when the enchantment has more than one level. Minecraft's level
+     * roll (Mth.nextInt(min, max)) draws nothing when min == max, so for Mending, Silk Touch and the
+     * curses a second slot was eaten by the price roll instead, pinning it to the minimum (#15).
+     */
+    private static IndexBiasedRandomSource bookSource(RandomSource costFallback, int enchIdx,
+                                                      Holder<Enchantment> ench, int lvl) {
+        int min = ench.value().getMinLevel();
+        return ench.value().getMaxLevel() > min
+                ? new IndexBiasedRandomSource(costFallback, enchIdx, lvl - min)
+                : new IndexBiasedRandomSource(costFallback, enchIdx);
+    }
+
+    /** The one enchantment stored on an enchanted book, or null. */
+    private static Holder<Enchantment> storedEnchantment(ItemStack book) {
+        if (!book.is(Items.ENCHANTED_BOOK)) return null;
+        var stored = book.getOrDefault(DataComponents.STORED_ENCHANTMENTS, ItemEnchantments.EMPTY);
+        return stored.size() == 1 ? stored.keySet().iterator().next() : null;
+    }
+
+    /** Does this offer sell exactly {@code ench} at {@code lvl}? Cards must sell what they say. */
+    private static boolean sells(MerchantOffer offer, Holder<Enchantment> ench, int lvl) {
+        ItemStack book = offer.getResult();
+        return ench.equals(storedEnchantment(book))
+                && book.getOrDefault(DataComponents.STORED_ENCHANTMENTS, ItemEnchantments.EMPTY).getLevel(ench) == lvl;
     }
 
     // -------------------------------------------------------------------------
@@ -666,22 +723,6 @@ public final class OfferFactory {
         HolderLookup.Provider registries = level.registryAccess();
         VillagerProfession prof = villager.getVillagerData().profession().value();
 
-        // Find enchantment index + min level in the tradeable pool
-        List<Holder<Enchantment>> tradeable = tradeableEnchantments(registries);
-        int enchIdx = -1;
-        int minLevel = 1;
-        for (int i = 0; i < tradeable.size(); i++) {
-            Holder<Enchantment> h = tradeable.get(i);
-            if (h.unwrapKey().map(k -> k.identifier().equals(parsed.enchantmentId)).orElse(false)) {
-                enchIdx = i;
-                minLevel = h.value().getMinLevel();
-                break;
-            }
-        }
-        if (enchIdx < 0) return Optional.empty();
-        int levelOffset = parsed.level - minLevel;
-        RandomSource costFallback = bookCostFallback(villager, synthetic);
-
         // A book trade must be regenerated from a book-producing template. That template
         // has to come from a trade set that actually CONTAINS a book trade. The book was
         // picked at `merchantLevel`, so that set is the natural source — but a villager
@@ -708,10 +749,24 @@ public final class OfferFactory {
                 String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
                 try {
                     VillagerTrade trade = holder.value();
+                    // Steer by THIS template's own list (#16). A template that can't roll the
+                    // enchantment, or isn't a book template at all, yields an empty pool or no match.
+                    List<Holder<Enchantment>> pool = bookPool(level, villager, tradeSet, trade);
+                    int enchIdx = -1;
+                    for (int i = 0; i < pool.size() && enchIdx < 0; i++) {
+                        if (pool.get(i).unwrapKey().map(k -> k.identifier().equals(parsed.enchantmentId)).orElse(false)) {
+                            enchIdx = i;
+                        }
+                    }
+                    if (enchIdx < 0) continue;
+                    Holder<Enchantment> ench = pool.get(enchIdx);
+                    // A fresh seeded stream per attempt: one shared across templates let rolls burnt by
+                    // earlier attempts shift the price the real one read, so the villager charged a
+                    // different price from the card (#15).
                     LootContext ctx = buildContext(level, villager, tradeSet,
-                            new IndexBiasedRandomSource(costFallback, enchIdx, levelOffset));
+                            bookSource(bookCostFallback(villager, synthetic), enchIdx, ench, parsed.level));
                     MerchantOffer offer = trade.getOffer(ctx);
-                    if (offer == null || !offer.getResult().is(Items.ENCHANTED_BOOK)) continue;
+                    if (offer == null || !sells(offer, ench, parsed.level)) continue;
                     TradeOptimizer.LOGGER.info("[book-regen] resolved {} -> {} via template {} (set level {})",
                             synthetic.id(), offer.getResult(), tradeName, lvl);
                     return Optional.of(offer);
@@ -827,15 +882,6 @@ public final class OfferFactory {
             if (!Character.isDigit(s.charAt(i))) return false;
         }
         return true;
-    }
-
-    private static List<Holder<Enchantment>> tradeableEnchantments(HolderLookup.Provider registries) {
-        var enchRegistry = registries.lookupOrThrow(Registries.ENCHANTMENT);
-        Optional<HolderSet.Named<Enchantment>> tag = enchRegistry.get(EnchantmentTags.TRADEABLE);
-        if (tag.isEmpty()) return List.of();
-        List<Holder<Enchantment>> out = new ArrayList<>();
-        for (Holder<Enchantment> h : tag.get()) out.add(h);
-        return out;
     }
 
     // -------------------------------------------------------------------------

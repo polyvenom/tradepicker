@@ -8,9 +8,11 @@ import net.minecraft.world.level.levelgen.PositionalRandomFactory;
  * {@code nextInt(bound)} calls, then defers to a cost source after that.
  *
  * Used to steer vanilla's enchant_randomly:
- *   - position 0 = HolderSet.getRandomElement → picks specific enchantment
- *   - position 1 = level roll (Mth.nextInt(min, max) → nextInt(max-min+1)) → picks specific level
- *   - positions 2+ = cost variance
+ *   - position 0 = the template's random pick from its own enchantment list → the enchantment
+ *   - position 1 = level roll (Mth.nextInt(min, max) → nextInt(max-min+1)) → the level. Only for
+ *     multi-level enchantments: Mth.nextInt draws nothing when min == max, so the caller leaves
+ *     this slot out (OfferFactory.bookSource)
+ *   - after the prefix = cost variance
  *
  * The steered prefix is always honored so the targeted enchantment + level is exact. What
  * happens to the cost rolls after the prefix depends on {@code costFallback}:
@@ -42,8 +44,13 @@ public final class IndexBiasedRandomSource implements RandomSource {
         return pos >= sequence.length;
     }
 
+    /**
+     * A fork is an independent stream, so it gets no steering. Restarting the prefix here handed the
+     * enchantment index and level offset to whatever forked mid-generation as its first rolls (#15).
+     * It continues the price stream instead: seeded when vanilla pricing is on, minimum otherwise.
+     */
     @Override public RandomSource fork() {
-        return new IndexBiasedRandomSource(costFallback == null ? null : costFallback.fork(), sequence);
+        return costFallback == null ? MinRandomSource.INSTANCE : costFallback.fork();
     }
 
     @Override public PositionalRandomFactory forkPositional() { return fallback.forkPositional(); }
