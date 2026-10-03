@@ -27,7 +27,15 @@ public final class TradeOptimizerConfig {
     private static final String FILE_NAME = TradeOptimizer.MOD_ID + ".json";
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    private static TradeOptimizerConfig instance;
+    // volatile + double-checked locking in get(): server and render threads can both hit first load.
+    private static volatile TradeOptimizerConfig instance;
+
+    /** Bumped by every setter so caches elsewhere can tell when the config changed. */
+    private static volatile int revision;
+
+    public static int revision() {
+        return revision;
+    }
 
     /**
      * {@code false} (default): the picker shows and applies the lowest possible vanilla price
@@ -35,7 +43,7 @@ public final class TradeOptimizerConfig {
      * randomized range, but seeded deterministically per villager + trade so the previewed
      * price matches the applied price and can't be re-rolled by reopening the picker.
      */
-    private boolean vanillaPricing = false;
+    private volatile boolean vanillaPricing = false;
 
     public boolean vanillaPricing() {
         return vanillaPricing;
@@ -43,7 +51,7 @@ public final class TradeOptimizerConfig {
 
     public void setVanillaPricing(boolean value) {
         this.vanillaPricing = value;
-        save();
+        revision++;
     }
 
     /**
@@ -52,7 +60,7 @@ public final class TradeOptimizerConfig {
      * picks per level to how many book trades vanilla actually offers there (usually one), forcing
      * the remaining pick(s) onto non-book trades for a vanilla-accurate librarian economy.
      */
-    private boolean vanillaBookLimits = false;
+    private volatile boolean vanillaBookLimits = false;
 
     public boolean vanillaBookLimits() {
         return vanillaBookLimits;
@@ -60,7 +68,7 @@ public final class TradeOptimizerConfig {
 
     public void setVanillaBookLimits(boolean value) {
         this.vanillaBookLimits = value;
-        save();
+        revision++;
     }
 
     /**
@@ -70,7 +78,7 @@ public final class TradeOptimizerConfig {
      * (issue #7). The filter never shrinks the list below the number of picks the level requires,
      * so a level can always be filled.
      */
-    private boolean hidePickedTrades = false;
+    private volatile boolean hidePickedTrades = false;
 
     public boolean hidePickedTrades() {
         return hidePickedTrades;
@@ -78,7 +86,7 @@ public final class TradeOptimizerConfig {
 
     public void setHidePickedTrades(boolean value) {
         this.hidePickedTrades = value;
-        save();
+        revision++;
     }
 
     /**
@@ -110,7 +118,7 @@ public final class TradeOptimizerConfig {
     }
 
     /** Stored as a string so the JSON stays human-editable ("single" / "headline" / "combo"). */
-    private String gearEnchantMode = GearEnchantMode.HEADLINE.name().toLowerCase(Locale.ROOT);
+    private volatile String gearEnchantMode = GearEnchantMode.HEADLINE.name().toLowerCase(Locale.ROOT);
 
     public GearEnchantMode gearEnchantMode() {
         return GearEnchantMode.parse(gearEnchantMode);
@@ -118,7 +126,7 @@ public final class TradeOptimizerConfig {
 
     public void setGearEnchantMode(GearEnchantMode mode) {
         this.gearEnchantMode = mode.name().toLowerCase(Locale.ROOT);
-        save();
+        revision++;
     }
 
     /**
@@ -128,22 +136,31 @@ public final class TradeOptimizerConfig {
      *
      * A {@link TreeSet} so the serialized JSON array is stable/sorted (nicer diffs, deterministic).
      */
-    private Set<String> costScalingProfessions = new TreeSet<>();
+    private volatile Set<String> costScalingProfessions = new TreeSet<>();
 
     public boolean isCostScaling(String professionId) {
         return costScalingProfessions != null && costScalingProfessions.contains(professionId);
     }
 
     public void setCostScaling(String professionId, boolean value) {
-        if (costScalingProfessions == null) costScalingProfessions = new TreeSet<>();
-        if (value) costScalingProfessions.add(professionId);
-        else costScalingProfessions.remove(professionId);
-        save();
+        // Copy-on-write: other threads read this set, so never mutate a published one.
+        Set<String> next = new TreeSet<>();
+        if (costScalingProfessions != null) next.addAll(costScalingProfessions);
+        if (value) next.add(professionId);
+        else next.remove(professionId);
+        costScalingProfessions = next;
+        revision++;
     }
 
     public static TradeOptimizerConfig get() {
-        if (instance == null) instance = load();
-        return instance;
+        TradeOptimizerConfig c = instance;
+        if (c == null) {
+            synchronized (TradeOptimizerConfig.class) {
+                c = instance;
+                if (c == null) instance = c = load();
+            }
+        }
+        return c;
     }
 
     private static Path path() {
@@ -161,11 +178,15 @@ public final class TradeOptimizerConfig {
             }
         }
         if (cfg == null) cfg = new TradeOptimizerConfig();
+        // Gson hands back a LinkedHashSet (or null); restore the sorted set.
+        cfg.costScalingProfessions = cfg.costScalingProfessions == null
+                ? new TreeSet<>() : new TreeSet<>(cfg.costScalingProfessions);
         cfg.save(); // create the file with defaults, or normalize it with any newly added keys
         return cfg;
     }
 
-    private void save() {
+    /** Writes the config file. Setters don't call this; the config screen saves once on close. */
+    public void save() {
         try {
             Files.writeString(path(), GSON.toJson(this));
         } catch (IOException e) {
