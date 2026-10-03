@@ -82,7 +82,7 @@ public final class OfferFactory {
         }
         TradeSet tradeSet = setOpt.get();
 
-        for (Holder<VillagerTrade> holder : tradeSet.trades()) {
+        for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
             Optional<ResourceKey<VillagerTrade>> keyOpt = holder.unwrapKey();
             if (keyOpt.isEmpty()) continue;
 
@@ -672,7 +672,7 @@ public final class OfferFactory {
             Optional<TradeSet> setOpt = tradeSet(registries, tradeSetKey);
             if (setOpt.isEmpty()) continue;
             TradeSet tradeSet = setOpt.get();
-            for (Holder<VillagerTrade> holder : tradeSet.trades()) {
+            for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
                 Optional<ResourceKey<VillagerTrade>> keyOpt = holder.unwrapKey();
                 if (keyOpt.isEmpty()) continue;
                 try {
@@ -946,7 +946,7 @@ public final class OfferFactory {
             if (setOpt.isEmpty()) continue;
             TradeSet tradeSet = setOpt.get();
 
-            for (Holder<VillagerTrade> holder : tradeSet.trades()) {
+            for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
                 String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
                 try {
                     List<Holder<MobEffect>> pool = stewPool(level, villager, tradeSet, holder.value());
