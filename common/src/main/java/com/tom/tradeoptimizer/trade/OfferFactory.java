@@ -15,14 +15,18 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.EnchantmentTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.Unit;
+import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.Potion;
 import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.item.component.SuspiciousStewEffects;
 import net.minecraft.world.item.enchantment.Enchantable;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
@@ -62,6 +66,8 @@ public final class OfferFactory {
     private static final String BOOK_PREFIX = "book/";
     private static final String GEAR_PREFIX = "gear/";
     private static final String ARROW_PREFIX = "arrow/";
+    private static final String STEW_PREFIX = "stew/";
+    private static final String DYE_PREFIX = "dye/";
     private static final String GEAR_SINGLE = "single/";
     private static final String GEAR_HEADLINE = "headline/";
 
@@ -93,6 +99,11 @@ public final class OfferFactory {
                     List<AvailableTrade> arrows = expandArrowTrade(villager, preview, registries);
                     if (arrows.isEmpty()) out.add(new AvailableTrade(flatKey, preview));
                     else out.addAll(arrows);
+                } else if (result.is(Items.SUSPICIOUS_STEW)) {
+                    // Stew's effect is a random pick, so it expands book-style: one card per effect (#14).
+                    List<AvailableTrade> stews = expandStewTrade(level, villager, tradeSet, holder.value());
+                    if (stews.isEmpty()) out.add(new AvailableTrade(flatKey, preview));
+                    else out.addAll(stews);
                 } else if (!result.getEnchantments().isEmpty()) {
                     // Enchanted gear (sword, bow, armor, tool, rod): vanilla rolls a random enchantment
                     // via the enchanting-table algorithm, so the picker only ever saw ONE card. Expand it
@@ -101,6 +112,9 @@ public final class OfferFactory {
                     List<AvailableTrade> gear = expandGearTrade(level, villager, preview, registries);
                     if (gear.isEmpty()) out.add(new AvailableTrade(flatKey, preview));
                     else out.addAll(gear);
+                } else if (result.has(DataComponents.DYED_COLOR)) {
+                    // Dyed leather rolls random dyes; offer one card per dye colour instead (#14).
+                    out.addAll(expandDyeTrade(villager, preview));
                 } else {
                     out.add(new AvailableTrade(flatKey, preview));
                 }
@@ -148,6 +162,12 @@ public final class OfferFactory {
         }
         if (isArrowKey(key)) {
             return generateArrowOffer(level, villager, key, merchantLevel);
+        }
+        if (isStewKey(key)) {
+            return generateStewOffer(level, villager, key, merchantLevel);
+        }
+        if (isDyeKey(key)) {
+            return generateDyeOffer(level, villager, key, merchantLevel);
         }
         HolderLookup.Provider registries = level.registryAccess();
         Optional<Holder.Reference<VillagerTrade>> ref =
@@ -252,6 +272,92 @@ public final class OfferFactory {
         ItemStack book = offer.getResult();
         return ench.equals(storedEnchantment(book))
                 && book.getOrDefault(DataComponents.STORED_ENCHANTMENTS, ItemEnchantments.EMPTY).getLevel(ench) == lvl;
+    }
+
+    // -------------------------------------------------------------------------
+    // Suspicious stew enumeration: one card per effect (#14)
+    // -------------------------------------------------------------------------
+
+    /** Guards an endless probe on a misbehaving template. Vanilla's stew lists 6 effects. */
+    private static final int MAX_STEW_POOL = 64;
+
+    /**
+     * The effects a stew template can roll, in the order its own random pick indexes them. Probed like
+     * {@link #bookPool}: steer the pick to 0, 1, 2... and read back the effect; a repeat marks the end.
+     */
+    private static List<Holder<MobEffect>> stewPool(ServerLevel level, Villager villager,
+                                                    TradeSet tradeSet, VillagerTrade template) {
+        List<Holder<MobEffect>> pool = new ArrayList<>();
+        for (int i = 0; i < MAX_STEW_POOL; i++) {
+            Holder<MobEffect> rolled;
+            try {
+                MerchantOffer probe = template.getOffer(
+                        buildContext(level, villager, tradeSet, new IndexBiasedRandomSource(i)));
+                rolled = probe == null ? null : stewEffect(probe.getResult());
+            } catch (Exception e) {
+                rolled = null;
+            }
+            if (rolled == null || (!pool.isEmpty() && pool.get(pool.size() - 1).equals(rolled))) break;
+            pool.add(rolled);
+        }
+        return pool;
+    }
+
+    /** The one effect stored on a suspicious stew, or null. */
+    private static Holder<MobEffect> stewEffect(ItemStack stew) {
+        if (!stew.is(Items.SUSPICIOUS_STEW)) return null;
+        var effects = stew.getOrDefault(DataComponents.SUSPICIOUS_STEW_EFFECTS, SuspiciousStewEffects.EMPTY).effects();
+        return effects.size() == 1 ? effects.get(0).effect() : null;
+    }
+
+    /** The template's offer steered to pool index {@code idx}, or null if it doesn't sell {@code effect}. */
+    private static MerchantOffer stewOffer(ServerLevel level, Villager villager, TradeSet tradeSet,
+                                           VillagerTrade template, TradeKey key, int idx, Holder<MobEffect> effect) {
+        LootContext ctx = buildContext(level, villager, tradeSet,
+                new IndexBiasedRandomSource(bookCostFallback(villager, key), idx));
+        MerchantOffer offer = template.getOffer(ctx);
+        return offer != null && effect.equals(stewEffect(offer.getResult())) ? offer : null;
+    }
+
+    private static List<AvailableTrade> expandStewTrade(ServerLevel level, Villager villager,
+                                                        TradeSet tradeSet, VillagerTrade template) {
+        List<AvailableTrade> out = new ArrayList<>();
+        List<Holder<MobEffect>> pool = stewPool(level, villager, tradeSet, template);
+        if (pool.size() < 2) return out; // nothing to choose between: keep the single flat card
+        for (int i = 0; i < pool.size(); i++) {
+            Optional<ResourceKey<MobEffect>> ek = pool.get(i).unwrapKey();
+            if (ek.isEmpty()) continue;
+            try {
+                TradeKey key = stewKey(ek.get().identifier());
+                MerchantOffer offer = stewOffer(level, villager, tradeSet, template, key, i, pool.get(i));
+                if (offer != null) out.add(new AvailableTrade(key, offer));
+            } catch (Exception e) {
+                // Skip on failure, like books.
+            }
+        }
+        // A lone surviving card would hide the other effects; fall back to the flat card.
+        return out.size() < 2 ? new ArrayList<>() : out;
+    }
+
+    // -------------------------------------------------------------------------
+    // Dyed leather enumeration: one card per dye colour (#14)
+    // -------------------------------------------------------------------------
+
+    private static List<AvailableTrade> expandDyeTrade(Villager villager, MerchantOffer templatePreview) {
+        List<AvailableTrade> out = new ArrayList<>();
+        Item item = templatePreview.getResult().getItem();
+        Identifier itemId = BuiltInRegistries.ITEM.getKey(item);
+        GearTemplateInfo tmpl = GearTemplateInfo.from(templatePreview);
+        for (DyeColor color : DyeColor.values()) {
+            out.add(new AvailableTrade(dyeKey(color, itemId), buildDyeOffer(tmpl, item, color)));
+        }
+        return out;
+    }
+
+    /** The item dyed exactly as if crafted with a single dye of {@code color}. */
+    private static MerchantOffer buildDyeOffer(GearTemplateInfo tmpl, Item item, DyeColor color) {
+        ItemStack dyed = DyedItemColor.applyDyes(new ItemStack(item, tmpl.count()), List.of(color));
+        return new MerchantOffer(tmpl.costA(), tmpl.costB(), dyed, tmpl.maxUses(), tmpl.xp(), tmpl.priceMultiplier());
     }
 
     // -------------------------------------------------------------------------
@@ -529,6 +635,27 @@ public final class OfferFactory {
         return Optional.of(buildArrowOffer(tmpl, potion.get(), professionId(villager)));
     }
 
+    private static Optional<MerchantOffer> generateDyeOffer(ServerLevel level, Villager villager,
+                                                            TradeKey key, int merchantLevel) {
+        String[] parts = key.id().getPath().substring(DYE_PREFIX.length()).split("/");
+        int[] cur = {0};
+        DyeColor color = DyeColor.byName(parts[cur[0]++], null);
+        Identifier itemId = readId(parts, cur);
+        if (color == null || itemId == null) return Optional.empty();
+        Item item = level.registryAccess().lookupOrThrow(Registries.ITEM)
+                .get(ResourceKey.create(Registries.ITEM, itemId))
+                .map(Holder.Reference::value).orElse(null);
+        if (item == null) return Optional.empty();
+
+        GearTemplateInfo tmpl = findTemplate(level, villager, merchantLevel,
+                o -> o.getResult().getItem() == item && o.getResult().has(DataComponents.DYED_COLOR));
+        if (tmpl == null) {
+            TradeOptimizer.LOGGER.warn("[dye-regen] no dyed template found for {}", key.id());
+            return Optional.empty();
+        }
+        return Optional.of(buildDyeOffer(tmpl, item, color));
+    }
+
     /**
      * Find a vanilla trade template across this villager's levels whose min-cost preview matches the
      * given predicate, returning its cost/shape. Mirrors the book-regen level scan: the pick's own level
@@ -561,8 +688,30 @@ public final class OfferFactory {
     }
 
     // -------------------------------------------------------------------------
-    // Gear / arrow synthetic key codec
+    // Gear / arrow / stew / dye synthetic key codec
     // -------------------------------------------------------------------------
+
+    public static boolean isStewKey(TradeKey key) {
+        return key.id().getNamespace().equals(TradeOptimizer.MOD_ID)
+                && key.id().getPath().startsWith(STEW_PREFIX);
+    }
+
+    public static boolean isDyeKey(TradeKey key) {
+        return key.id().getNamespace().equals(TradeOptimizer.MOD_ID)
+                && key.id().getPath().startsWith(DYE_PREFIX);
+    }
+
+    static TradeKey stewKey(Identifier effect) {
+        StringBuilder sb = new StringBuilder(STEW_PREFIX);
+        appendId(sb, effect);
+        return new TradeKey(Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, sb.toString()));
+    }
+
+    static TradeKey dyeKey(DyeColor color, Identifier item) {
+        StringBuilder sb = new StringBuilder(DYE_PREFIX).append(color.getSerializedName()).append('/');
+        appendId(sb, item);
+        return new TradeKey(Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, sb.toString()));
+    }
 
     /** Parsed gear key: which item, which enchantment, the mode, and (SINGLE only) the level. */
     private record GearKey(GearEnchantMode mode, Identifier item, Identifier ench, int level) {}
@@ -777,6 +926,48 @@ public final class OfferFactory {
         }
         TradeOptimizer.LOGGER.warn("[book-regen] FAILED to regenerate {} (no book template found at any level)",
                 synthetic.id());
+        return Optional.empty();
+    }
+
+    private static Optional<MerchantOffer> generateStewOffer(ServerLevel level, Villager villager,
+                                                             TradeKey key, int merchantLevel) {
+        Identifier effectId = readId(key.id().getPath().substring(STEW_PREFIX.length()).split("/"), new int[]{0});
+        if (effectId == null) return Optional.empty();
+
+        HolderLookup.Provider registries = level.registryAccess();
+        VillagerProfession prof = villager.getVillagerData().profession().value();
+
+        // Same level scan as books: the pick's own level first, then every level, so a stew still
+        // regenerates after the villager advanced past the farmer level that sold it.
+        for (int lvl : candidateLevels(merchantLevel)) {
+            ResourceKey<TradeSet> tradeSetKey = prof.getTrades(lvl);
+            if (tradeSetKey == null) continue;
+            Optional<TradeSet> setOpt = tradeSet(registries, tradeSetKey);
+            if (setOpt.isEmpty()) continue;
+            TradeSet tradeSet = setOpt.get();
+
+            for (Holder<VillagerTrade> holder : tradeSet.trades()) {
+                String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
+                try {
+                    List<Holder<MobEffect>> pool = stewPool(level, villager, tradeSet, holder.value());
+                    int idx = -1;
+                    for (int i = 0; i < pool.size() && idx < 0; i++) {
+                        if (pool.get(i).unwrapKey().map(k -> k.identifier().equals(effectId)).orElse(false)) idx = i;
+                    }
+                    if (idx < 0) continue;
+                    MerchantOffer offer = stewOffer(level, villager, tradeSet, holder.value(), key, idx, pool.get(idx));
+                    if (offer == null) continue;
+                    TradeOptimizer.LOGGER.debug("[stew-regen] resolved {} via template {} (set level {})",
+                            key.id(), tradeName, lvl);
+                    return Optional.of(offer);
+                } catch (Exception e) {
+                    TradeOptimizer.LOGGER.warn("[stew-regen] template {} threw while regenerating {}",
+                            tradeName, key.id(), e);
+                }
+            }
+        }
+        TradeOptimizer.LOGGER.warn("[stew-regen] FAILED to regenerate {} (no stew template found at any level)",
+                key.id());
         return Optional.empty();
     }
 

@@ -25,7 +25,8 @@
       "com.tom.tradeoptimizer.villager.TickedLevelUpGameTest",
       "com.tom.tradeoptimizer.villager.ActionGateGameTest",
       "com.tom.tradeoptimizer.villager.PoolCacheGameTest",
-      "com.tom.tradeoptimizer.gametest.BookPricingGameTest"
+      "com.tom.tradeoptimizer.gametest.BookPricingGameTest",
+      "com.tom.tradeoptimizer.gametest.VariantTradeGameTest"
     ]
   },
   "depends": {
