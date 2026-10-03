@@ -190,9 +190,15 @@ public class OwnershipGateGameTest {
     /**
      * With vanillaBookLimits enabled, a profession with NO book trades (farmer) is unaffected: the
      * per-level book cap relaxes so the two non-book picks still go through (no softlock). The
-     * librarian book-cap path itself isn't headless-testable — the gametest server's experimental
-     * Trade Rebalance datapack returns null book previews, so 0 books enumerate — and is validated
-     * in the live game instead.
+     * librarian book-cap path itself isn't headless-testable — librarian is one of the two
+     * professions the trade_rebalance experiment overrides (VillagerTrades.EXPERIMENTAL_TRADES), and
+     * game tests always run with it on, where it returns null book previews so 0 books enumerate —
+     * and is validated in the live game.
+     *
+     * That experiment is always on in game tests: Minecraft's own GameTestServer enables every
+     * feature flag except the redstone and minecart experiments, and nothing the mod or the build
+     * script sets can turn it off. It overrides only armorer and librarian, so prefer another
+     * profession (farmer, fletcher, weaponsmith) for anything that measures a trade pool.
      */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {
