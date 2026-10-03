@@ -43,7 +43,7 @@ public abstract class MerchantScreenMixin extends AbstractContainerScreen<Mercha
         int btnH = 12;
         int x = this.leftPos + this.imageWidth - btnW - 4;
         int y = this.topPos - btnH - 2;
-        this.addRenderableWidget(Button.builder(Component.literal("Reset"), b -> {
+        this.addRenderableWidget(Button.builder(Component.translatable("tradeoptimizer.picker.reset"), b -> {
             UUID id = ClientLastVillager.get();
             if (id == null) return;
             Screen self = (MerchantScreen) (Object) this;
