@@ -1,10 +1,14 @@
 package com.tom.tradeoptimizer.neoforge.client;
 
 import com.tom.tradeoptimizer.client.state.ClientLastVillager;
+import com.tom.tradeoptimizer.client.ui.TradePickerConfigScreen;
 import com.tom.tradeoptimizer.client.ui.TradePickerScreen;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.npc.villager.Villager;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.gui.IConfigScreenFactory;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
@@ -15,8 +19,12 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 public final class NeoForgeClientHandlers {
     private NeoForgeClientHandlers() {}
 
-    /** Register client-side event listeners (last-villager tracking for the Reset button). */
-    public static void initClient() {
+    /** Register client-side hooks: the config screen and last-villager tracking for the Reset button. */
+    public static void initClient(ModContainer container) {
+        // The "Config" button on the mod's entry in NeoForge's mod list (Fabric gets it via ModMenu).
+        container.registerExtensionPoint(IConfigScreenFactory.class,
+                (mod, parent) -> new TradePickerConfigScreen(parent));
+
         NeoForge.EVENT_BUS.addListener((PlayerInteractEvent.EntityInteract event) -> {
             if (!event.getLevel().isClientSide()) return;
             if (event.getTarget() instanceof Villager v) {
@@ -27,10 +35,17 @@ public final class NeoForgeClientHandlers {
                 ClientLastVillager.clear();
             }
         });
+
+        // A villager from another world or server is never the one a merchant screen belongs to (#18).
+        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingIn event) -> ClientLastVillager.clear());
+        NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> ClientLastVillager.clear());
     }
 
-    /** Clientbound OPEN_PICKER handler — opens the picker screen. */
+    /**
+     * Clientbound OPEN_PICKER handler — opens the picker screen. gui.setScreen, not
+     * setScreenAndShow: the latter forces an extra frame with the world skipped (a black flash).
+     */
     public static void openPicker(OpenPickerS2C payload) {
-        Minecraft.getInstance().setScreenAndShow(new TradePickerScreen(payload));
+        Minecraft.getInstance().gui.setScreen(new TradePickerScreen(payload));
     }
 }

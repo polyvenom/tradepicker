@@ -15,6 +15,9 @@ sourceSets {
 	gameTest
 }
 
+// Run the Fabric game-test classes on NeoForge too (shared source; GameTest annotation is stubbed here).
+sourceSets.gameTest.java.srcDir project(':fabric').file('src/gametest/java')
+
 neoForge {
 	version = project.neoforge_version
 
@@ -41,6 +44,8 @@ neoForge {
 // common/src/client/java are compiled here against NeoForge's Mojmapped Minecraft.
 sourceSets.main.java.srcDir project(':common').file('src/main/java')
 sourceSets.main.java.srcDir project(':common').file('src/client/java')
+// Shared resources too: the mixin configs and the lang file, so neither loader keeps its own copy.
+sourceSets.main.resources.srcDir project(':common').file('src/main/resources')
 
 // Substitute ${version} in neoforge.mods.toml with the gradle mod_version (mirrors how the
 // Fabric build interpolates fabric.mod.json), so the jar's metadata reports the real version
