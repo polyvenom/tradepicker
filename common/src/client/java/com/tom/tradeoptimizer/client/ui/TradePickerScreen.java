@@ -31,6 +31,7 @@ import net.minecraft.world.item.trading.MerchantOffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -59,7 +60,8 @@ public final class TradePickerScreen extends Screen {
     private static final int SUBMIT_TIMEOUT_TICKS = 60;
 
     private final OpenPickerS2C data;
-    private final Set<Integer> selectedIndices = new HashSet<>();
+    // Insertion-ordered: the villager lists the trades in the order they were clicked (#23).
+    private final Set<Integer> selectedIndices = new LinkedHashSet<>();
 
     /** Pre-computed display data per trade — never changes for this session. */
     private final List<String> cardLabels = new ArrayList<>();
@@ -381,6 +383,12 @@ public final class TradePickerScreen extends Screen {
         g.itemDecorations(this.font, r, afterA, iy);
 
         int rightPad = LABEL_RIGHT_PAD;
+        if (selected) {
+            // Its place in the villager's list: trades are listed in click order (#23).
+            String n = String.valueOf(selectionNumber(idx));
+            g.text(this.font, n, x + CARD_WIDTH - 3 - this.font.width(n), y + 2, 0xFFFFFFFF);
+            rightPad += 8;
+        }
         if (owned) {
             // Check mark at the card's right edge: this trade is already on the villager.
             g.text(this.font, "✔", x + CARD_WIDTH - 12, y + 9, 0xFF55CC55);
@@ -600,6 +608,15 @@ public final class TradePickerScreen extends Screen {
         }
         confirmBtn.active = (selectedIndices.size() == data.picksRequired());
         rebuildStatusText();
+    }
+
+    private int selectionNumber(int idx) {
+        int n = 1;
+        for (int i : selectedIndices) {
+            if (i == idx) return n;
+            n++;
+        }
+        return 0;
     }
 
     private boolean isBookCard(int idx) {
