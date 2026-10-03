@@ -946,7 +946,7 @@ public final class OfferFactory {
             if (setOpt.isEmpty()) continue;
             TradeSet tradeSet = setOpt.get();
 
-            for (Holder<VillagerTrade> holder : tradeSet.trades()) {
+            for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
                 String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
                 try {
                     List<Holder<MobEffect>> pool = stewPool(level, villager, tradeSet, holder.value());
