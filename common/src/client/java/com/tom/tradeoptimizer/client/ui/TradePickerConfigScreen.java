@@ -110,6 +110,12 @@ public class TradePickerConfigScreen extends Screen {
         return Component.translatable("tradeoptimizer.config.gearMode", Component.translatable(key));
     }
 
+    /** Runs whenever the screen is replaced (Escape and Done both go through setScreen): persist once. */
+    @Override
+    public void removed() {
+        TradeOptimizerConfig.get().save();
+    }
+
     @Override
     public void onClose() {
         if (this.minecraft != null) this.minecraft.setScreen(this.parent);

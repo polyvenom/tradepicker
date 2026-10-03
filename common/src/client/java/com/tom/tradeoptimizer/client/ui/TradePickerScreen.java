@@ -25,9 +25,11 @@ import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.trading.MerchantOffer;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -91,6 +93,12 @@ public final class TradePickerScreen extends Screen {
     private String titleText = "";
     private String statusText = "";
 
+    /** Per-frame allocation cuts (#20): fitted labels by maxWidth then text, and the scroll hint by the ints it shows. */
+    private final Map<Integer, Map<String, String>> fitCache = new HashMap<>();
+    private String hintText = "";
+    private int hintRow = -1;
+    private int hintMax = -1;
+
     public TradePickerScreen(OpenPickerS2C data) {
         super(Component.literal("Trade Picker"));
         this.data = data;
@@ -101,6 +109,7 @@ public final class TradePickerScreen extends Screen {
         super.init();
 
         // Pre-compute display data once.
+        fitCache.clear(); // widths change with GUI scale; also bounds growth
         cardLabels.clear();
         cardTooltips.clear();
         cardSearch.clear();
@@ -316,7 +325,13 @@ public final class TradePickerScreen extends Screen {
             String msg = "No trades match your search.";
             g.drawString(this.font, msg, (this.width - this.font.width(msg)) / 2, TOP_PAD + 12, 0xFFAAAAAA);
         } else if (maxScroll() > 0) {
-            String hint = "Scroll for more (page " + (scrollRow + 1) + " / " + (maxScroll() + 1) + ")";
+            int maxScroll = maxScroll();
+            if (scrollRow != hintRow || maxScroll != hintMax) {
+                hintRow = scrollRow;
+                hintMax = maxScroll;
+                hintText = "Scroll for more (page " + (scrollRow + 1) + " / " + (maxScroll + 1) + ")";
+            }
+            String hint = hintText;
             int hintY = this.height - 50 - (hoveredIdx >= 0 ? 12 : 0);
             g.drawString(this.font, hint, (this.width - this.font.width(hint)) / 2, hintY, 0xFF888888);
         }
@@ -378,6 +393,11 @@ public final class TradePickerScreen extends Screen {
     }
 
     private String fitText(String text, int maxWidth) {
+        return fitCache.computeIfAbsent(maxWidth, w -> new HashMap<>())
+                .computeIfAbsent(text, t -> fitTextUncached(t, maxWidth));
+    }
+
+    private String fitTextUncached(String text, int maxWidth) {
         if (this.font.width(text) <= maxWidth) return text;
         while (text.length() > 1 && this.font.width(text + ".") > maxWidth) {
             text = text.substring(0, text.length() - 1);

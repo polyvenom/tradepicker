@@ -352,7 +352,7 @@ public final class OfferFactory {
                     MerchantOffer offer = listings[i].getOffer(level, villager,
                             bookSource(bookCostFallback(villager, synthetic), enchIdx, levels, parsed.level));
                     if (offer == null || !sells(offer, ench, parsed.level)) continue;
-                    TradeOptimizer.LOGGER.info("[book-regen] resolved {} -> {} via listing {}/{}",
+                    TradeOptimizer.LOGGER.debug("[book-regen] resolved {} -> {} via listing {}/{}",
                             synthetic.id(), offer.getResult(), lvl, i);
                     return Optional.of(offer);
                 } catch (Exception e) {

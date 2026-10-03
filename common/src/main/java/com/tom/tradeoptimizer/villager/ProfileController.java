@@ -10,6 +10,7 @@ import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
 import net.minecraft.core.Holder;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -18,6 +19,8 @@ import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerData;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
 import net.minecraft.world.entity.npc.villager.VillagerTrades;
+import net.minecraft.world.entity.npc.villager.VillagerType;
+import net.minecraft.world.flag.FeatureFlagSet;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
@@ -168,11 +171,13 @@ public final class ProfileController {
         VillagerProfileState state = VillagerProfileState.get(level);
         VillagerProfile profile = state.get(villager.getUUID());
 
-        TradeOptimizer.LOGGER.debug("[interact] villager={} prof={} mlevel={} offers={} profile={} thread={}",
-                villager.getUUID(), profName, merchantLevel,
-                villager.getOffers() == null ? "null" : villager.getOffers().size(),
-                profile == null ? "null" : ("picks=" + profile.picks().keySet() + " legacy=" + profile.legacy().keySet()),
-                Thread.currentThread().getName());
+        if (TradeOptimizer.LOGGER.isDebugEnabled()) { // the arguments build strings on every click (#20)
+            TradeOptimizer.LOGGER.debug("[interact] villager={} prof={} mlevel={} offers={} profile={} thread={}",
+                    villager.getUUID(), profName, merchantLevel,
+                    villager.getOffers() == null ? "null" : villager.getOffers().size(),
+                    profile == null ? "null" : ("picks=" + profile.picks().keySet() + " legacy=" + profile.legacy().keySet()),
+                    Thread.currentThread().getName());
+        }
 
         // Case 2: no profile yet. Two sub-cases.
         //   2a — TRULY FRESH villager: level 1 and zero XP means vanilla rolled the
@@ -337,7 +342,7 @@ public final class ProfileController {
         //    Re-enumerate the pool server-side and drop anything that isn't in it.
         List<AvailableTrade> available;
         try {
-            available = OfferFactory.enumerate(sl, villager, level);
+            available = enumeratePool(sl, villager, level);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("[submit] enumeration failed for {} level {}", profName, level, e);
             return;
@@ -650,6 +655,51 @@ public final class ProfileController {
     /** Two runs of the same click land in the same tick, or within one of it under load. */
     private static final long DUPLICATE_CLICK_TICKS = 2;
 
+    /**
+     * What a villager's trade pool depends on on this Minecraft line: the merchant level, the
+     * profession and biome type whose listings are enumerated, the enabled feature flags (the trade
+     * rebalance swaps the whole table), the registries the cards were rolled from, and the config
+     * (pricing mode, gear mode).
+     */
+    private record PoolKey(int merchantLevel, Holder<VillagerProfession> profession, Holder<VillagerType> type,
+                           FeatureFlagSet features, HolderLookup.Provider registries, int configRevision) {}
+
+    /** The last pool enumerated for a villager; {@code gameTime} is when, for expiry. */
+    private record PoolEntry(PoolKey key, long gameTime, List<AvailableTrade> pool) {}
+
+    /**
+     * The last trade pool enumerated for each villager, reused by the second run of a click and by
+     * the submit's validation (#20). Enumerating is the expensive step (headline gear re-rolls
+     * vanilla's enchanting up to 256 times per enchantment, book listings are probed for their
+     * enchantment lists) and its result depends only on the villager, the level and the config, so
+     * one click and its submit used to compute the same list three times. Validating against the
+     * very list the picker was built from is also the stricter check.
+     */
+    private static final Map<UUID, PoolEntry> poolCache = new HashMap<>();
+
+    /** Ten minutes: long enough for a player to read the picker, short enough to bound the map. */
+    private static final long POOL_CACHE_TICKS = 12_000;
+
+    /** {@link OfferFactory#enumerate}, cached per villager. The list is unmodifiable: it's shared. */
+    static List<AvailableTrade> enumeratePool(ServerLevel level, Villager villager, int merchantLevel) {
+        long now = level.getGameTime();
+        HolderLookup.Provider registries = level.registryAccess();
+        VillagerData data = villager.getVillagerData();
+        PoolKey key = new PoolKey(merchantLevel, data.profession(), data.type(), level.enabledFeatures(),
+                registries, TradeOptimizerConfig.revision());
+        PoolEntry hit = poolCache.get(villager.getUUID());
+        if (hit != null && hit.key().equals(key) && now >= hit.gameTime()
+                && now - hit.gameTime() <= POOL_CACHE_TICKS) {
+            return hit.pool();
+        }
+        List<AvailableTrade> pool = List.copyOf(OfferFactory.enumerate(level, villager, merchantLevel));
+        // Drop expired entries and any left over from another world.
+        poolCache.values().removeIf(e -> e.key().registries() != registries
+                || now < e.gameTime() || now - e.gameTime() > POOL_CACHE_TICKS);
+        poolCache.put(villager.getUUID(), new PoolEntry(key, now, pool));
+        return pool;
+    }
+
     /** Vanilla generates at most this many trades per merchant level. */
     private static final int MAX_TRADES_PER_LEVEL = 2;
 
@@ -822,7 +872,7 @@ public final class ProfileController {
 
         List<AvailableTrade> available;
         try {
-            available = OfferFactory.enumerate(level, villager, merchantLevel);
+            available = enumeratePool(level, villager, merchantLevel);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("Trade enumeration failed for {} level {}",
                     profile.profession(), merchantLevel, e);
