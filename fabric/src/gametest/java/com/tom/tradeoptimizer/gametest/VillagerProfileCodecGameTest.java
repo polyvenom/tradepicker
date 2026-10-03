@@ -8,7 +8,7 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.RegistryOps;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -33,10 +33,10 @@ public class VillagerProfileCodecGameTest {
 
         Map<Integer, List<TradeKey>> picks = new HashMap<>();
         picks.put(1, List.of(
-                new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_wheat_for_emerald")),
-                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "book/minecraft/sharpness"))));
+                new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_wheat_for_emerald")),
+                new TradeKey(Identifier.fromNamespaceAndPath("tradeoptimizer", "book/minecraft/sharpness"))));
         picks.put(2, List.of(
-                new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_pumpkin_for_emerald"))));
+                new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_pumpkin_for_emerald"))));
 
         MerchantOffer offerA = new MerchantOffer(new ItemCost(Items.WHEAT, 20), new ItemStack(Items.EMERALD, 1), 16, 2, 0.05f);
         MerchantOffer offerB = new MerchantOffer(new ItemCost(Items.EMERALD, 3), new ItemStack(Items.BREAD, 6), 12, 1, 0.05f);
@@ -49,7 +49,7 @@ public class VillagerProfileCodecGameTest {
         assertRoundTrips(helper, ops, full, "full profile");
 
         Map<Integer, List<TradeKey>> picksOnly = new HashMap<>();
-        picksOnly.put(1, List.of(new TradeKey(ResourceLocation.fromNamespaceAndPath("minecraft", "farmer_potato_for_emerald"))));
+        picksOnly.put(1, List.of(new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_potato_for_emerald"))));
         VillagerProfile ownerless = new VillagerProfile(
                 UUID.randomUUID(), "minecraft:farmer", Optional.empty(), picksOnly, new HashMap<>());
         assertRoundTrips(helper, ops, ownerless, "ownerless profile");

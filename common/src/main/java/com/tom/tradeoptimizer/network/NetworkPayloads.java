@@ -2,7 +2,7 @@ package com.tom.tradeoptimizer.network;
 
 import com.tom.tradeoptimizer.TradeOptimizer;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 /**
  * The custom-payload type handles, shared by every loader. These are plain vanilla
@@ -12,8 +12,8 @@ import net.minecraft.resources.ResourceLocation;
 public final class NetworkPayloads {
     private NetworkPayloads() {}
 
-    private static ResourceLocation id(String path) {
-        return ResourceLocation.fromNamespaceAndPath(TradeOptimizer.MOD_ID, path);
+    private static Identifier id(String path) {
+        return Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, path);
     }
 
     public static final CustomPacketPayload.Type<OpenPickerS2C> OPEN_PICKER_TYPE =

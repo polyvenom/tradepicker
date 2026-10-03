@@ -11,12 +11,12 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.entity.npc.VillagerProfession;
-import net.minecraft.world.entity.npc.VillagerType;
+import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.npc.villager.VillagerProfession;
+import net.minecraft.world.entity.npc.villager.VillagerType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
@@ -71,11 +71,11 @@ public class GearTradeGameTest {
             helper.assertTrue(ItemStack.matches(result, hit.card().previewOffer().getResult()),
                     Component.literal("regenerated gear offer differs from its preview (non-deterministic)"));
 
-            Optional<ResourceLocation> headline = OfferFactory.headlineEnchantId(hit.card().key());
+            Optional<Identifier> headline = OfferFactory.headlineEnchantId(hit.card().key());
             if (headline.isPresent()) {
                 boolean found = false;
                 for (Holder<Enchantment> h : result.getEnchantments().keySet()) {
-                    if (h.unwrapKey().map(k -> k.location().equals(headline.get())).orElse(false)) {
+                    if (h.unwrapKey().map(k -> k.identifier().equals(headline.get())).orElse(false)) {
                         found = true;
                         break;
                     }

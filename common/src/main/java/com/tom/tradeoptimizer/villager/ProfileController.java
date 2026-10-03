@@ -3,7 +3,6 @@ package com.tom.tradeoptimizer.villager;
 import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.api.TradePickerApi;
 import com.tom.tradeoptimizer.api.VillagerInteractionHandler;
-import com.tom.tradeoptimizer.compat.VersionCompat;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.platform.Services;
@@ -14,15 +13,17 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.entity.npc.VillagerData;
-import net.minecraft.world.entity.npc.VillagerProfession;
-import net.minecraft.world.entity.npc.VillagerTrades;
+import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.npc.villager.VillagerData;
+import net.minecraft.world.entity.npc.villager.VillagerProfession;
+import net.minecraft.world.entity.npc.villager.VillagerTrades;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.permissions.Permission;
+import net.minecraft.server.permissions.PermissionLevel;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -48,11 +49,15 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ProfileController {
     private ProfileController() {}
 
+    /**
+     * Op-equivalent permission probe: GAMEMASTERS is 1.21.11's named replacement for the old
+     * integer permission level 2 (the threshold for /op'd command access).
+     */
+    private static final Permission OP_PERMISSION =
+            new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS);
+
     private static boolean isOp(ServerPlayer player) {
-        // Permission level 2 = the /op cheat-command threshold. 1.21.9/1.21.10 use the integer
-        // hasPermissions(int); 1.21.11 replaced it with the PermissionSet/PermissionLevel model.
-        // VersionCompat bridges both so this one jar covers the whole 1.21.9-1.21.11 cluster.
-        return VersionCompat.hasPermissionLevel(player, 2);
+        return player.permissions().hasPermission(OP_PERMISSION);
     }
 
     /**
@@ -79,7 +84,7 @@ public final class ProfileController {
         int merchantLevel = data.level();
         VillagerProfession prof = data.profession().value();
         String profName = BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(prof)
-                .map(k -> k.location().toString()).orElse("minecraft:none");
+                .map(k -> k.identifier().toString()).orElse("minecraft:none");
 
         // Nitwits and unemployed villagers can't trade — bail.
         // 1.21.5: VillagerProfession.NITWIT/NONE are ResourceKey constants; compare via registry key.
@@ -209,7 +214,7 @@ public final class ProfileController {
         }
         VillagerProfession prof = villager.getVillagerData().profession().value();
         String profName = BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(prof)
-                .map(k -> k.location().toString()).orElse("minecraft:none");
+                .map(k -> k.identifier().toString()).orElse("minecraft:none");
 
         // The picks list arrives from the client and CANNOT be trusted. Without these
         // checks a modified client could submit any villager-trade id (or any synthetic
@@ -235,7 +240,7 @@ public final class ProfileController {
             TradeOptimizer.LOGGER.error("[submit] enumeration failed for {} level {}", profName, level, e);
             return;
         }
-        Set<ResourceLocation> validIds = new HashSet<>();
+        Set<Identifier> validIds = new HashSet<>();
         for (AvailableTrade t : available) validIds.add(t.key().id());
 
         List<TradeKey> validatedPicks = new ArrayList<>(picks.size());
@@ -496,7 +501,7 @@ public final class ProfileController {
      * flat listing keys are level-scoped and never collide across levels (issue #7).
      */
     static List<TradeKey> ownedTradeKeys(VillagerProfile profile, List<AvailableTrade> available) {
-        Set<ResourceLocation> pickedIds = new HashSet<>();
+        Set<Identifier> pickedIds = new HashSet<>();
         for (List<TradeKey> picks : profile.picks().values()) {
             for (TradeKey k : picks) pickedIds.add(k.id());
         }
@@ -529,7 +534,7 @@ public final class ProfileController {
     static List<AvailableTrade> effectiveAvailable(List<AvailableTrade> available,
                                                    List<TradeKey> ownedKeys, int picksRequired) {
         if (!TradeOptimizerConfig.get().hidePickedTrades() || ownedKeys.isEmpty()) return available;
-        Set<ResourceLocation> hide = new HashSet<>();
+        Set<Identifier> hide = new HashSet<>();
         for (TradeKey k : ownedKeys) hide.add(k.id());
         List<AvailableTrade> out = new ArrayList<>();
         for (AvailableTrade t : available) {

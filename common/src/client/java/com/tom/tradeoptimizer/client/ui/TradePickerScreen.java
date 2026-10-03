@@ -15,7 +15,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.PotionContents;
@@ -85,7 +85,7 @@ public final class TradePickerScreen extends Screen {
         cardLabels.clear();
         cardTooltips.clear();
         ownedIndices.clear();
-        Set<ResourceLocation> ownedIds = new HashSet<>();
+        Set<Identifier> ownedIds = new HashSet<>();
         for (var key : data.ownedKeys()) ownedIds.add(key.id());
         for (int i = 0; i < data.available().size(); i++) {
             AvailableTrade trade = data.available().get(i);
@@ -385,10 +385,10 @@ public final class TradePickerScreen extends Screen {
     /** Gear card label: lead with the chosen (headline) enchantment, note how many bonuses ride along. */
     private static String gearEnchantLabel(TradeKey key, ItemEnchantments enchants) {
         Holder<Enchantment> lead = null;
-        Optional<ResourceLocation> headline = OfferFactory.headlineEnchantId(key);
+        Optional<Identifier> headline = OfferFactory.headlineEnchantId(key);
         if (headline.isPresent()) {
             for (Holder<Enchantment> h : enchants.keySet()) {
-                if (h.unwrapKey().map(k -> k.location().equals(headline.get())).orElse(false)) {
+                if (h.unwrapKey().map(k -> k.identifier().equals(headline.get())).orElse(false)) {
                     lead = h;
                     break;
                 }
@@ -415,12 +415,12 @@ public final class TradePickerScreen extends Screen {
         if (pc == null) return "";
         return pc.potion()
                 .flatMap(Holder::unwrapKey)
-                .map(k -> capitalize(k.location().getPath().replace('_', ' ')))
+                .map(k -> capitalize(k.identifier().getPath().replace('_', ' ')))
                 .orElse("");
     }
 
     private static String enchantName(Holder<Enchantment> ench, int level) {
-        String pathStr = ench.unwrapKey().map(k -> k.location().getPath()).orElse("enchant");
+        String pathStr = ench.unwrapKey().map(k -> k.identifier().getPath()).orElse("enchant");
         String base = capitalize(pathStr.replace('_', ' '));
         // Match vanilla: single-level enchantments (Mending, Silk Touch, Infinity, ...)
         // display with no numeral. Multi-level enchantments always show their numeral.

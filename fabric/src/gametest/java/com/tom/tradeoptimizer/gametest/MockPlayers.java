@@ -10,6 +10,7 @@ import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import net.minecraft.server.players.ServerOpListEntry;
 
 import java.util.UUID;
@@ -39,11 +40,11 @@ public final class MockPlayers {
 
     /**
      * Grant op (permission level 4) by writing the ops list directly — the GameTestServer's
-     * default operator permission level can sit below the hasPermissions(2) threshold the mod
+     * default operator permission level can sit below the GAMEMASTERS threshold the mod
      * checks, so the bare PlayerList.op() isn't deterministic enough for tests.
      */
     public static void op(ServerPlayer player) {
         MinecraftServer server = player.level().getServer();
-        server.getPlayerList().getOps().add(new ServerOpListEntry(player.nameAndId(), 4, false));
+        server.getPlayerList().getOps().add(new ServerOpListEntry(player.nameAndId(), LevelBasedPermissionSet.OWNER, false));
     }
 }

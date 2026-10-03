@@ -13,4 +13,3 @@ rootProject.name = "tradeoptimizer"
 
 include 'common'
 include 'fabric'
-include 'neoforge'

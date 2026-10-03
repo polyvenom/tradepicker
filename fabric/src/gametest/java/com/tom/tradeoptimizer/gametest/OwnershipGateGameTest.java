@@ -13,10 +13,12 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.permissions.Permission;
+import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.entity.npc.VillagerProfession;
-import net.minecraft.world.entity.npc.VillagerType;
+import net.minecraft.world.entity.npc.villager.Villager;
+import net.minecraft.world.entity.npc.villager.VillagerProfession;
+import net.minecraft.world.entity.npc.villager.VillagerType;
 import net.minecraft.world.inventory.MerchantMenu;
 
 import java.util.ArrayList;
@@ -106,7 +108,7 @@ public class OwnershipGateGameTest {
 
         ServerPlayer op = MockPlayers.mock(helper);
         MockPlayers.op(op);
-        helper.assertTrue(op.hasPermissions(2),
+        helper.assertTrue(op.permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS)),
                 Component.literal("sanity: the ops-list entry should grant the mock player permission level 2+"));
 
         ProfileController.onPickerSubmit(op, villagerId, 2, firstTwoPicks(level, villager, 2, helper));

@@ -140,6 +140,6 @@ public final class VillagerProfileState extends SavedData {
         legacy.setDirty();
         global.setDirty();
         TradeOptimizer.LOGGER.info("Migrated {} villager profile(s) from {} into the global profile store",
-                moved, level.dimension().location());
+                moved, level.dimension().identifier());
     }
 }
