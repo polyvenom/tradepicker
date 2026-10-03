@@ -1,0 +1,260 @@
+package com.tom.tradeoptimizer.villager;
+
+import com.tom.tradeoptimizer.gametest.MockPlayers;
+import com.tom.tradeoptimizer.trade.AvailableTrade;
+import com.tom.tradeoptimizer.trade.OfferFactory;
+import com.tom.tradeoptimizer.trade.TradeKey;
+import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.core.BlockPos;
+import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.npc.Villager;
+import net.minecraft.world.entity.npc.VillagerData;
+import net.minecraft.world.entity.npc.VillagerProfession;
+import net.minecraft.world.entity.npc.VillagerType;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Guards the held level-up: a managed villager's rank must not move until the player has picked
+ * that rank's trades, and then it must move as part of the same submit.
+ *
+ * VillagerLevelUpMixin cancels vanilla's increaseMerchantCareer for managed villagers, so nothing
+ * else in the game will ever raise the rank. If the grant in onPickerSubmit regressed, a villager
+ * would sit at its old rank forever with the player's picks piling up on a level it never reached
+ * — so the "rank actually rises" assertion below is the load-bearing one.
+ */
+public class LevelUpHoldGameTest {
+
+    /** Vanilla's own threshold: enough XP banked and the rank still allowed to rise. */
+    @GameTest(template = "fabric-gametest-api-v1:empty")
+    public void readinessMatchesVanillaThreshold(GameTestHelper helper) {
+        Villager villager = spawnFarmer(helper, 1);
+
+        villager.setVillagerXp(0);
+        helper.assertFalse(ProfileController.isDueToLevelUp(villager),
+                "a villager with no XP is not due to level up");
+
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(1));
+        helper.assertTrue(ProfileController.isDueToLevelUp(villager),
+                "a villager at the level-1 XP bar is due to level up");
+
+        helper.succeed();
+    }
+
+    /** A villager at max rank is never due, however much XP it banks. */
+    @GameTest(template = "fabric-gametest-api-v1:empty")
+    public void maxRankIsNeverDue(GameTestHelper helper) {
+        Villager villager = spawnFarmer(helper, 5);
+        villager.setVillagerXp(Integer.MAX_VALUE / 2);
+
+        helper.assertFalse(ProfileController.isDueToLevelUp(villager),
+                "a master villager can't level up regardless of XP");
+
+        helper.succeed();
+    }
+
+    /** Picking for the pending rank grants it — rank and trades land together. */
+    @GameTest(template = "fabric-gametest-api-v1:empty")
+    public void submittingThePendingLevelGrantsIt(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 1);
+        UUID villagerId = villager.getUUID();
+        ServerPlayer owner = MockPlayers.near(helper);
+
+        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 1,
+                "rank after picking level 1");
+
+        // Bank the XP vanilla would have levelled on. The mixin holds the rank, so it only moves
+        // when the player picks for it.
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(1));
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 1,
+                "rank while the level-up is held");
+
+        ProfileController.onPickerSubmit(owner, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 2,
+                "rank after picking the pending level");
+
+        VillagerProfile profile = VillagerProfileState.get(level).get(villagerId);
+        helper.assertTrue(profile != null && profile.isFilled(2),
+                "the pending level's picks must be stored");
+
+        helper.succeed();
+    }
+
+    /** Without the XP for it, a submit one rank ahead is rejected and the rank stays put. */
+    @GameTest(template = "fabric-gametest-api-v1:empty")
+    public void submittingAheadWithoutXpIsRejected(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 1);
+        UUID villagerId = villager.getUUID();
+        ServerPlayer owner = MockPlayers.near(helper);
+
+        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
+        villager.setVillagerXp(0);
+
+        ProfileController.onPickerSubmit(owner, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 1,
+                "rank after a submit that hadn't earned the level");
+
+        VillagerProfile profile = VillagerProfileState.get(level).get(villagerId);
+        helper.assertTrue(profile != null && !profile.isFilled(2),
+                "picks for an unearned level must not be stored");
+
+        helper.succeed();
+    }
+
+    /**
+     * A rank with nothing to choose must still be granted.
+     *
+     * When a rank's pool holds no more trades than the player must pick, there is nothing to
+     * choose, so the mod fills it automatically — and that path writes its picks directly rather
+     * than going through onPickerSubmit. It used to skip the level grant entirely, and because
+     * vanilla's own level-up is cancelled for managed villagers, nothing else would ever raise
+     * the rank: the villager stopped levelling for good. Reported against a max-level librarian,
+     * whose master rank is a single trade.
+     *
+     * Farmer's master rank is the stable two-option pool here. Librarian's is a single trade in
+     * a normal game, which is where this was reported — but game tests always run with
+     * trade_rebalance on (see OwnershipGateGameTest), and that experiment rewrites librarian's
+     * trades. Farmer is one of the professions it doesn't touch.
+     */
+    @GameTest(template = "fabric-gametest-api-v1:empty")
+    public void autoProgressedRankIsStillGranted(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 4);
+        ServerPlayer owner = MockPlayers.near(helper);
+
+        VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(),
+                "minecraft:farmer", owner.getUUID());
+        for (int lvl = 1; lvl <= 4; lvl++) profile.setPicks(lvl, firstTwoPicks(level, villager, lvl, helper));
+        VillagerProfileState.get(level).update(profile);
+
+        // Earn the master rank, then ask for its picker the way onInteract does.
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(4));
+        helper.assertTrue(ProfileController.isDueToLevelUp(villager),
+                "precondition: the villager should be due for its master rank");
+
+        ProfileController.sendPicker(owner, villager, profile, 5);
+
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 5,
+                "rank after a no-choice level was auto-progressed");
+        helper.assertTrue(profile.isFilled(5),
+                "the auto-progressed rank's picks must be stored");
+
+        helper.succeed();
+    }
+
+    /**
+     * A villager left stuck by 1.5.0 must be rescued on its next right-click.
+     *
+     * 1.5.0's no-choice path saved the rank's picks but never granted the rank. So a player
+     * upgrading from it can have a villager in exactly this state: the rank's XP earned, its picks
+     * already stored, the rank itself never given. The picker treats a rank with stored picks as
+     * done, so without a rescue the villager would sit one rank short forever, with those picks
+     * never reaching its offer list (applyToVillager only walks levels up to the current rank).
+     */
+    @GameTest(template = "fabric-gametest-api-v1:empty")
+    public void villagerStuckByAnEarlierBuildIsRescued(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 4);
+        ServerPlayer owner = MockPlayers.near(helper);
+
+        VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(),
+                "minecraft:farmer", owner.getUUID());
+        for (int lvl = 1; lvl <= 5; lvl++) profile.setPicks(lvl, firstTwoPicks(level, villager, lvl, helper));
+        VillagerProfileState.get(level).update(profile);
+        ProfileController.applyToVillager(level, villager, profile);
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(4));
+        int offersBefore = villager.getOffers().size();
+
+        ProfileController.grantRanksAlreadyPicked(level, villager, profile);
+
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 5,
+                "rank of a stuck villager after the rescue");
+        helper.assertTrue(villager.getOffers().size() > offersBefore,
+                "the rescued rank's stored picks must reach the offer list");
+
+        helper.succeed();
+    }
+
+    /** The rescue only grants ranks that are both earned and already picked. */
+    @GameTest(template = "fabric-gametest-api-v1:empty")
+    public void rescueLeavesUnpickedOrUnearnedRanksAlone(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper, 2);
+        ServerPlayer owner = MockPlayers.near(helper);
+
+        VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(),
+                "minecraft:farmer", owner.getUUID());
+        for (int lvl = 1; lvl <= 2; lvl++) profile.setPicks(lvl, firstTwoPicks(level, villager, lvl, helper));
+        VillagerProfileState.get(level).update(profile);
+
+        // Earned but not picked: the picker has to run for it, not the rescue.
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(2));
+        ProfileController.grantRanksAlreadyPicked(level, villager, profile);
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 2, "rank with the next rank unpicked");
+
+        // Picked but not earned: no rank without the XP for it.
+        profile.setPicks(3, firstTwoPicks(level, villager, 3, helper));
+        villager.setVillagerXp(0);
+        ProfileController.grantRanksAlreadyPicked(level, villager, profile);
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 2, "rank with the next rank unearned");
+
+        helper.succeed();
+    }
+
+    /** The grant only fires for the one rank above, and only once it's been earned. */
+    @GameTest(template = "fabric-gametest-api-v1:empty")
+    public void grantOnlyAppliesToTheEarnedNextRank(GameTestHelper helper) {
+        Villager villager = spawnFarmer(helper, 2);
+
+        villager.setVillagerXp(0);
+        helper.assertFalse(ProfileController.grantPendingLevel(villager, 3),
+                "no grant before the XP is earned");
+
+        villager.setVillagerXp(VillagerData.getMaxXpPerLevel(2));
+        helper.assertFalse(ProfileController.grantPendingLevel(villager, 2),
+                "no grant for the rank the villager already holds");
+        helper.assertFalse(ProfileController.grantPendingLevel(villager, 4),
+                "no grant for a rank two steps ahead");
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 2,
+                "rank after the rejected grants");
+
+        helper.assertTrue(ProfileController.grantPendingLevel(villager, 3),
+                "grant for the earned next rank");
+        helper.assertValueEqual(villager.getVillagerData().getLevel(), 3,
+                "rank after the accepted grant");
+
+        helper.succeed();
+    }
+
+    // -------------------------------------------------------------------------
+
+    private static Villager spawnFarmer(GameTestHelper helper, int villagerLevel) {
+        ServerLevel level = helper.getLevel();
+        var registries = level.registryAccess();
+        Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
+        villager.setVillagerData(villager.getVillagerData()
+                .setType(VillagerType.PLAINS)
+                .setProfession(VillagerProfession.FARMER)
+                .setLevel(villagerLevel));
+        return villager;
+    }
+
+    private static List<TradeKey> firstTwoPicks(ServerLevel level, Villager villager,
+                                                int merchantLevel, GameTestHelper helper) {
+        List<AvailableTrade> available = OfferFactory.enumerate(level, villager, merchantLevel);
+        helper.assertTrue(available.size() >= 2,
+                "farmer level " + merchantLevel + " needs >=2 trade options (got " + available.size() + ")");
+        List<TradeKey> picks = new ArrayList<>();
+        picks.add(available.get(0).key());
+        picks.add(available.get(1).key());
+        return picks;
+    }
+}

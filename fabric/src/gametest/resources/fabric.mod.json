@@ -13,8 +13,21 @@
       "com.tom.tradeoptimizer.gametest.VillagerProfileCodecGameTest",
       "com.tom.tradeoptimizer.gametest.PriceSeedGameTest",
       "com.tom.tradeoptimizer.villager.LegacyBucketingGameTest",
+      "com.tom.tradeoptimizer.villager.ProfilePersistenceGameTest",
       "com.tom.tradeoptimizer.trade.BookKeyFormatGameTest",
-      "com.tom.tradeoptimizer.gametest.GearTradeGameTest"
+      "com.tom.tradeoptimizer.gametest.GearTradeGameTest",
+      "com.tom.tradeoptimizer.gametest.ReputationPricingGameTest",
+      "com.tom.tradeoptimizer.gametest.ConversionProfileGameTest",
+      "com.tom.tradeoptimizer.villager.VanillaInteractionGateGameTest",
+      "com.tom.tradeoptimizer.villager.LevelCatchUpGameTest",
+      "com.tom.tradeoptimizer.villager.LevelUpHoldGameTest",
+      "com.tom.tradeoptimizer.villager.ProfessionSweepGameTest",
+      "com.tom.tradeoptimizer.villager.TickedLevelUpGameTest",
+      "com.tom.tradeoptimizer.villager.ActionGateGameTest",
+      "com.tom.tradeoptimizer.villager.PoolCacheGameTest",
+      "com.tom.tradeoptimizer.gametest.BookPricingGameTest",
+      "com.tom.tradeoptimizer.gametest.TradeOrderGameTest",
+      "com.tom.tradeoptimizer.gametest.VariantTradeGameTest"
     ]
   },
   "depends": {

@@ -4,10 +4,13 @@ import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig.GearEnchantMode;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
+import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
-import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
@@ -21,28 +24,19 @@ import net.minecraft.world.item.trading.MerchantOffer;
 
 import java.util.Optional;
 
-/**
- * Game tests for the enchanted-gear / tipped-arrow picker expansion on MC 1.21.1 (issues #4 / #5).
- *
- * Unlike the librarian book trades (biome-gated → no preview in this headless world), the gear /
- * tipped-arrow listings (EnchantedItemForEmeralds / TippedArrowForItemsAndEmeralds) generate a real
- * offer for a synthetic villager, so they DO exercise here. We scan all five merchant levels for the
- * first gear / arrow listing since the level a profession places it at differs from the 26.x line.
- */
 public class GearTradeGameTest {
 
     private static final String EMPTY = "fabric-gametest-api-v1:empty";
 
-    private static Villager spawn(GameTestHelper helper, VillagerProfession prof, int merchantLevel) {
+    private static Villager spawn(GameTestHelper helper, VillagerProfession profKey, int merchantLevel) {
         Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
         villager.setVillagerData(villager.getVillagerData()
                 .setType(VillagerType.PLAINS)
-                .setProfession(prof)
+                .setProfession(profKey)
                 .setLevel(merchantLevel));
         return villager;
     }
 
-    /** First gear card across all merchant levels, with the level it was found at. */
     private record GearHit(AvailableTrade card, int level) {}
 
     private static GearHit firstGearCard(ServerLevel level, Villager villager) {
