@@ -97,12 +97,12 @@ public final class TradeOptimizerConfig {
      *   <li>{@link GearEnchantMode#SINGLE} — one card per (enchantment × level).</li>
      *   <li>{@link GearEnchantMode#HEADLINE} (default) — one card per enchantment; the game still
      *       rolls its level AND any vanilla bonus enchantments.</li>
-     *   <li>{@link GearEnchantMode#COMBO} — reserved for the upcoming combo-builder UI; treated as
-     *       HEADLINE until that ships so saves written now stay valid.</li>
      * </ul>
+     * {@link #parse} falls back to HEADLINE for any other string, so a config file written with an
+     * old or unknown mode (e.g. "combo") still loads as HEADLINE.
      */
     public enum GearEnchantMode {
-        SINGLE, HEADLINE, COMBO;
+        SINGLE, HEADLINE;
 
         public static GearEnchantMode parse(String s) {
             if (s == null) return HEADLINE;
@@ -114,7 +114,7 @@ public final class TradeOptimizerConfig {
         }
     }
 
-    /** Stored as a string so the JSON stays human-editable ("single" / "headline" / "combo"). */
+    /** Stored as a string so the JSON stays human-editable ("single" / "headline"). */
     private volatile String gearEnchantMode = GearEnchantMode.HEADLINE.name().toLowerCase(Locale.ROOT);
 
     public GearEnchantMode gearEnchantMode() {

@@ -80,6 +80,16 @@ public final class OfferFactory {
     /** Villager merchant levels run 1 (Novice) .. 5 (Master). */
     private static final int MAX_MERCHANT_LEVEL = 5;
 
+    /** The pick's own merchant level first (if valid), then every level 1..MAX. */
+    private static List<Integer> candidateLevels(int merchantLevel) {
+        List<Integer> levels = new ArrayList<>();
+        if (merchantLevel >= 1 && merchantLevel <= MAX_MERCHANT_LEVEL) levels.add(merchantLevel);
+        for (int lvl = 1; lvl <= MAX_MERCHANT_LEVEL; lvl++) {
+            if (!levels.contains(lvl)) levels.add(lvl);
+        }
+        return levels;
+    }
+
     // -------------------------------------------------------------------------
     // Trade pool access (1.21.1 hardcoded listing tables)
     // -------------------------------------------------------------------------
@@ -321,13 +331,8 @@ public final class OfferFactory {
         // from a level whose pool actually CONTAINS one. Try the pick's own level first, then
         // scan every level — same fallback the 26.x line uses (a librarian's master level may
         // sell no books).
-        List<Integer> candidateLevels = new ArrayList<>();
-        if (merchantLevel >= 1 && merchantLevel <= MAX_MERCHANT_LEVEL) candidateLevels.add(merchantLevel);
-        for (int lvl = 1; lvl <= MAX_MERCHANT_LEVEL; lvl++) {
-            if (!candidateLevels.contains(lvl)) candidateLevels.add(lvl);
-        }
 
-        for (int lvl : candidateLevels) {
+        for (int lvl : candidateLevels(merchantLevel)) {
             VillagerTrades.ItemListing[] listings = listingsFor(level, prof, lvl);
             if (listings == null) continue;
 
@@ -598,12 +603,7 @@ public final class OfferFactory {
     private static GearTemplateInfo findTemplate(ServerLevel level, Villager villager, int merchantLevel,
                                                  Predicate<MerchantOffer> match) {
         VillagerProfession prof = villager.getVillagerData().profession().value();
-        List<Integer> candidateLevels = new ArrayList<>();
-        if (merchantLevel >= 1 && merchantLevel <= MAX_MERCHANT_LEVEL) candidateLevels.add(merchantLevel);
-        for (int lvl = 1; lvl <= MAX_MERCHANT_LEVEL; lvl++) {
-            if (!candidateLevels.contains(lvl)) candidateLevels.add(lvl);
-        }
-        for (int lvl : candidateLevels) {
+        for (int lvl : candidateLevels(merchantLevel)) {
             VillagerTrades.ItemListing[] listings = listingsFor(level, prof, lvl);
             if (listings == null) continue;
             for (int i = 0; i < listings.length; i++) {
