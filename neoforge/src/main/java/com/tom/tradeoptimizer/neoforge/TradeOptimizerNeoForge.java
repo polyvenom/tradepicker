@@ -9,8 +9,10 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.npc.Villager;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.entity.living.LivingConversionEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
 /**
@@ -20,17 +22,23 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 @Mod("tradeoptimizer")
 public final class TradeOptimizerNeoForge {
 
-    public TradeOptimizerNeoForge(IEventBus modBus, Dist dist) {
+    public TradeOptimizerNeoForge(IEventBus modBus, ModContainer container, Dist dist) {
         // Payload types register on the mod bus (RegisterPayloadHandlersEvent).
         modBus.addListener(NeoForgeNetwork::register);
 
         // Server-side villager interaction on the game bus.
         NeoForge.EVENT_BUS.addListener(TradeOptimizerNeoForge::onEntityInteract);
 
-        // Client-only setup (last-villager tracking). Guarded so a dedicated server never
-        // classloads client code.
+        // Conversions (zombify / cure / lightning) replace the entity and mint a new UUID;
+        // re-key the profile so picks and ownership survive the round trip. Mirrors Fabric's
+        // MOB_CONVERSION.
+        NeoForge.EVENT_BUS.addListener((LivingConversionEvent.Post event) ->
+                ProfileController.onMobConverted(event.getEntity(), event.getOutcome()));
+
+        // Client-only setup (config screen, last-villager tracking). Guarded so a dedicated
+        // server never classloads client code.
         if (dist == Dist.CLIENT) {
-            com.tom.tradeoptimizer.neoforge.client.NeoForgeClientHandlers.initClient();
+            com.tom.tradeoptimizer.neoforge.client.NeoForgeClientHandlers.initClient(container);
         }
 
         TradeOptimizer.init();

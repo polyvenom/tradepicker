@@ -64,6 +64,8 @@ loom {
 // processor still runs over any shared mixin sources.
 sourceSets.main.java.srcDir project(':common').file('src/main/java')
 sourceSets.client.java.srcDir project(':common').file('src/client/java')
+// Shared resources too: the lang file, so neither loader keeps its own copy.
+sourceSets.main.resources.srcDir project(':common').file('src/main/resources')
 
 // Give the gametest source set everything main has (Minecraft, Fabric API, and the
 // remapped gametest API via modImplementation) plus main's compiled output.

@@ -5,7 +5,8 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "AbstractVillagerAccessor",
-    "VillagerInvoker"
+    "VillagerInvoker",
+    "VillagerLevelUpMixin"
   ],
   "injectors": {
     "defaultRequire": 1

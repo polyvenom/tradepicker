@@ -13,11 +13,14 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.Difficulty;
+import net.minecraft.world.entity.monster.Zombie;
 import net.minecraft.world.entity.monster.ZombieVillager;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.entity.npc.VillagerType;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -34,9 +37,9 @@ import java.util.UUID;
  * right-click imported its own picked trades — plus any random vanilla level-up rolls — as
  * permanent "legacy" offers, never showing the picker again.
  *
- * The fix re-keys the profile on every conversion (Fabric MOB_CONVERSION
- * → ProfileController.onMobConverted), so this test drives the
- * exact vanilla conversion entry point (convertTo) rather than simulating it.
+ * The fix re-keys the profile on every conversion (Fabric MOB_CONVERSION / NeoForge
+ * LivingConversionEvent.Post → ProfileController.onMobConverted), so this test drives vanilla's
+ * real zombify and cure methods rather than simulating them.
  */
 public class ConversionProfileGameTest {
 
@@ -54,9 +57,21 @@ public class ConversionProfileGameTest {
         VillagerProfileState state = VillagerProfileState.get(level);
         check(helper, state.get(originalId) != null, "profile should exist after submit");
 
-        // Zombify — the same convertTo call vanilla's Zombie.convertVillagerToZombieVillager
-        // makes. Produces a NEW entity with a NEW UUID.
-        ZombieVillager zombie = villager.convertTo(EntityType.ZOMBIE_VILLAGER, true);
+        // Zombify through vanilla's own entry point: a zombie killing the villager. The real
+        // callers matter: NeoForge posts LivingConversionEvent from them, not from Mob.convertTo.
+        // Produces a NEW entity with a NEW UUID. HARD so the kill always converts (NORMAL rolls).
+        Zombie attacker = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(1, 2, 3));
+        Difficulty before = level.getDifficulty();
+        level.getServer().setDifficulty(Difficulty.HARD, true);
+        try {
+            attacker.killedEntity(level, villager);
+        } finally {
+            level.getServer().setDifficulty(before, true);
+        }
+        // Searched around the villager, not the test structure: NeoForge runs these tests on a
+        // 1-block structure, so helper.findOneEntity would look in the wrong place.
+        ZombieVillager zombie = level.getEntitiesOfClass(ZombieVillager.class,
+                villager.getBoundingBox().inflate(1)).stream().findFirst().orElse(null);
         check(helper, zombie != null, "zombify conversion should produce a zombie villager");
         check(helper, !zombie.getUUID().equals(originalId),
                 "vanilla contract: conversion must mint a new UUID — if this ever fails, "
@@ -66,9 +81,17 @@ public class ConversionProfileGameTest {
         check(helper, state.get(zombie.getUUID()) != null,
                 "profile must follow onto the zombie villager (parked while zombified)");
 
-        // Cure — the same convertTo call ZombieVillager.finishConversion makes. Again a
-        // brand-new Villager with a brand-new UUID.
-        Villager cured = zombie.convertTo(EntityType.VILLAGER, true);
+        // Cure through ZombieVillager.finishConversion, what the cure timer runs when it ends.
+        // It's private, hence reflection. Again a brand-new Villager with a brand-new UUID.
+        try {
+            Method finish = ZombieVillager.class.getDeclaredMethod("finishConversion", ServerLevel.class);
+            finish.setAccessible(true);
+            finish.invoke(zombie, level);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("could not run ZombieVillager.finishConversion", e);
+        }
+        Villager cured = level.getEntitiesOfClass(Villager.class,
+                zombie.getBoundingBox().inflate(1)).stream().findFirst().orElse(null);
         check(helper, cured != null, "cure conversion should produce a villager");
 
         VillagerProfile restored = state.get(cured.getUUID());

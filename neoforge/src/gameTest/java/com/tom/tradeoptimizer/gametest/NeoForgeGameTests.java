@@ -1,502 +1,102 @@
 package com.tom.tradeoptimizer.gametest;
 
-import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
-import com.tom.tradeoptimizer.config.TradeOptimizerConfig.GearEnchantMode;
-import com.tom.tradeoptimizer.trade.AvailableTrade;
-import com.tom.tradeoptimizer.trade.NeoForgeBookKeyTest;
-import com.tom.tradeoptimizer.trade.OfferFactory;
-import com.tom.tradeoptimizer.trade.TradeKey;
-import com.tom.tradeoptimizer.villager.NeoForgeLegacyBucketingTest;
-import com.tom.tradeoptimizer.villager.ProfileController;
-import com.tom.tradeoptimizer.villager.VillagerProfile;
-import com.tom.tradeoptimizer.villager.VillagerProfileState;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Holder;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.Tag;
-import net.minecraft.resources.RegistryOps;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.Villager;
-import net.minecraft.world.entity.npc.VillagerProfession;
-import net.minecraft.world.entity.npc.VillagerType;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.item.enchantment.Enchantment;
-import net.minecraft.world.item.trading.ItemCost;
-import net.minecraft.world.item.trading.MerchantOffer;
-import net.minecraft.world.item.trading.MerchantOffers;
+import net.minecraft.gametest.framework.GameTestRegistry;
+import net.minecraft.gametest.framework.StructureUtils;
+import net.minecraft.gametest.framework.TestFunction;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
-import net.neoforged.neoforge.gametest.GameTestHolder;
-import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.Locale;
+import java.util.function.Consumer;
 
 /**
- * NeoForge port of the Fabric game-test safety net. NeoForge 21.1 uses the classic annotation
- * framework (the 26.x data-driven TEST_FUNCTION registry doesn't exist here): vanilla
- * {@code @GameTest} on public instance methods, namespace from {@code @GameTestHolder}, and
- * {@code @PrefixGameTestTemplate(false)} so the template resolves as {@code tradeoptimizer:empty}
- * (an all-void SNBT shipped into the run dir's gameteststructures folder by the build).
- *
- * The two package-private tests (legacy bucketing, book-key format) keep their bodies in the
- * matching com.tom.tradeoptimizer.villager / .trade packages and are delegated to from here.
+ * Runs the Fabric game-test classes (shared via the gameTest source set) on NeoForge. On 1.21.1
+ * both loaders use vanilla's annotation framework, so the same {@code @GameTest} methods apply;
+ * they are turned into {@link TestFunction}s here rather than through RegisterGameTestsEvent
+ * because NeoForge would glue the class name onto the Fabric-supplied
+ * {@code fabric-gametest-api-v1:empty} template. Every test is pointed at our own all-void
+ * {@code tradeoptimizer:empty} structure instead (SNBT shipped into the run dir's
+ * gameteststructures folder by the build). The class list mirrors
+ * fabric/src/gametest/resources/fabric.mod.json.
  */
-@GameTestHolder("tradeoptimizer")
-@PrefixGameTestTemplate(false)
-@EventBusSubscriber(modid = "tradeoptimizer", bus = EventBusSubscriber.Bus.MOD)
-public class NeoForgeGameTests {
+@EventBusSubscriber(modid = "tradeoptimizer")
+public final class NeoForgeGameTests {
+    private NeoForgeGameTests() {}
 
-    // Bare path only — @GameTestHolder("tradeoptimizer") supplies the namespace, so the resolved
-    // template id is tradeoptimizer:empty (its SNBT lives at gameteststructures/empty.snbt).
-    private static final String EMPTY = "empty";
+    // Keep in sync with "fabric-gametest" in fabric/src/gametest/resources/fabric.mod.json.
+    private static final List<String> TEST_CLASSES = List.of(
+            "com.tom.tradeoptimizer.gametest.OfferFactoryGameTest",
+            "com.tom.tradeoptimizer.gametest.RestockExploitGameTest",
+            "com.tom.tradeoptimizer.gametest.OwnershipGateGameTest",
+            "com.tom.tradeoptimizer.gametest.VillagerProfileCodecGameTest",
+            "com.tom.tradeoptimizer.gametest.PriceSeedGameTest",
+            "com.tom.tradeoptimizer.villager.LegacyBucketingGameTest",
+            "com.tom.tradeoptimizer.villager.ProfilePersistenceGameTest",
+            "com.tom.tradeoptimizer.trade.BookKeyFormatGameTest",
+            "com.tom.tradeoptimizer.gametest.GearTradeGameTest",
+            "com.tom.tradeoptimizer.gametest.ReputationPricingGameTest",
+            "com.tom.tradeoptimizer.gametest.ConversionProfileGameTest",
+            "com.tom.tradeoptimizer.villager.VanillaInteractionGateGameTest",
+            "com.tom.tradeoptimizer.villager.LevelCatchUpGameTest",
+            "com.tom.tradeoptimizer.villager.LevelUpHoldGameTest",
+            "com.tom.tradeoptimizer.villager.ProfessionSweepGameTest",
+            "com.tom.tradeoptimizer.villager.TickedLevelUpGameTest",
+            "com.tom.tradeoptimizer.villager.ActionGateGameTest",
+            "com.tom.tradeoptimizer.villager.PoolCacheGameTest",
+            "com.tom.tradeoptimizer.gametest.BookPricingGameTest",
+            "com.tom.tradeoptimizer.gametest.TradeOrderGameTest",
+            "com.tom.tradeoptimizer.gametest.VariantTradeGameTest");
+
+    private static final String EMPTY_STRUCTURE = "tradeoptimizer:empty";
 
     @SubscribeEvent
     static void registerTests(RegisterGameTestsEvent event) {
-        event.register(NeoForgeGameTests.class);
-    }
-
-    // ============================ shared helpers ============================
-
-    private static Villager spawnFarmer(GameTestHelper helper, int villagerLevel) {
-        Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
-        villager.setVillagerData(villager.getVillagerData()
-                .setType(VillagerType.PLAINS)
-                .setProfession(VillagerProfession.FARMER)
-                .setLevel(villagerLevel));
-        return villager;
-    }
-
-    private static List<TradeKey> firstTwoPicks(ServerLevel level, Villager villager,
-                                                int merchantLevel, GameTestHelper helper) {
-        List<AvailableTrade> available = OfferFactory.enumerate(level, villager, merchantLevel);
-        helper.assertTrue(available.size() >= 2,
-                "farmer level " + merchantLevel + " needs >=2 trade options (got " + available.size() + ")");
-        List<TradeKey> picks = new ArrayList<>();
-        picks.add(available.get(0).key());
-        picks.add(available.get(1).key());
-        return picks;
-    }
-
-    // ============================ tests ============================
-
-    // ---- gear / tipped-arrow round-trips (mirror of Fabric GearTradeGameTest) ----
-
-    private static Villager spawnProf(GameTestHelper helper, VillagerProfession prof, int merchantLevel) {
-        Villager villager = helper.spawnWithNoFreeWill(EntityType.VILLAGER, new BlockPos(1, 2, 1));
-        villager.setVillagerData(villager.getVillagerData()
-                .setType(VillagerType.PLAINS)
-                .setProfession(prof)
-                .setLevel(merchantLevel));
-        return villager;
-    }
-
-    private record GearHit(AvailableTrade card, int level) {}
-
-    private static GearHit firstGearCard(ServerLevel level, Villager villager) {
-        for (int ml = 1; ml <= 5; ml++) {
-            villager.setVillagerData(villager.getVillagerData().setLevel(ml));
-            for (AvailableTrade t : OfferFactory.enumerate(level, villager, ml)) {
-                if (OfferFactory.isGearKey(t.key())) return new GearHit(t, ml);
+        int count = 0;
+        for (String className : TEST_CLASSES) {
+            Class<?> cls;
+            Object instance;
+            try {
+                cls = Class.forName(className);
+                var ctor = cls.getDeclaredConstructor();
+                ctor.setAccessible(true);
+                instance = ctor.newInstance();
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("Cannot load game test class " + className, e);
+            }
+            for (Method m : cls.getDeclaredMethods()) {
+                GameTest ann = m.getAnnotation(GameTest.class);
+                if (ann == null) continue;
+                m.setAccessible(true);
+                String name = cls.getSimpleName().toLowerCase(Locale.ROOT) + "." + m.getName().toLowerCase(Locale.ROOT);
+                Consumer<GameTestHelper> body = helper -> invoke(m, instance, helper);
+                GameTestRegistry.getAllTestFunctions().add(new TestFunction(
+                        ann.batch(), name, EMPTY_STRUCTURE,
+                        StructureUtils.getRotationForRotationSteps(ann.rotationSteps()),
+                        ann.timeoutTicks(), ann.setupTicks(), ann.required(), ann.manualOnly(),
+                        ann.requiredSuccesses(), ann.attempts(), ann.skyAccess(), body));
+                GameTestRegistry.getAllTestClassNames().add(cls.getSimpleName());
+                count++;
             }
         }
-        return null;
+        System.out.println("[TradePicker] registered " + count + " NeoForge game tests");
     }
 
-    private void gearRoundTrip(GameTestHelper helper, GearEnchantMode mode) {
-        TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
-        GearEnchantMode original = cfg.gearEnchantMode();
+    private static void invoke(Method m, Object target, GameTestHelper helper) {
         try {
-            cfg.setGearEnchantMode(mode);
-            ServerLevel level = helper.getLevel();
-            Villager villager = spawnProf(helper, VillagerProfession.WEAPONSMITH, 1);
-            GearHit hit = firstGearCard(level, villager);
-            helper.assertTrue(hit != null, "weaponsmith produced no enchanted-gear cards in " + mode + " mode");
-            helper.assertTrue(!hit.card().previewOffer().getResult().getEnchantments().isEmpty(),
-                    "gear preview result has no enchantments");
-            Optional<MerchantOffer> regen = OfferFactory.generate(level, villager, hit.card().key(), hit.level());
-            helper.assertTrue(regen.isPresent(), "gear key " + hit.card().key().id() + " failed to regenerate");
-            ItemStack result = regen.get().getResult();
-            helper.assertTrue(!result.getEnchantments().isEmpty(), "regenerated gear has no enchantments");
-            helper.assertTrue(ItemStack.matches(result, hit.card().previewOffer().getResult()),
-                    "regenerated gear offer differs from its preview (non-deterministic)");
-            Optional<net.minecraft.resources.ResourceLocation> headline = OfferFactory.headlineEnchantId(hit.card().key());
-            if (headline.isPresent()) {
-                boolean found = false;
-                for (Holder<Enchantment> h : result.getEnchantments().keySet()) {
-                    if (h.unwrapKey().map(k -> k.location().equals(headline.get())).orElse(false)) {
-                        found = true;
-                        break;
-                    }
-                }
-                helper.assertTrue(found, "headline enchantment " + headline.get() + " missing from rolled gear");
-            }
-            helper.succeed();
-        } finally {
-            cfg.setGearEnchantMode(original);
+            m.invoke(target, helper);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            if (cause instanceof Error err) throw err;
+            throw new IllegalStateException(cause);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e);
         }
-    }
-
-    @GameTest(template = EMPTY)
-    public void weaponsmithGearHeadlineRoundTrips(GameTestHelper helper) {
-        gearRoundTrip(helper, GearEnchantMode.HEADLINE);
-    }
-
-    @GameTest(template = EMPTY)
-    public void weaponsmithGearSingleRoundTrips(GameTestHelper helper) {
-        gearRoundTrip(helper, GearEnchantMode.SINGLE);
-    }
-
-    @GameTest(template = EMPTY)
-    public void fletcherArrowRoundTrips(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnProf(helper, VillagerProfession.FLETCHER, 1);
-        for (int ml = 1; ml <= 5; ml++) {
-            villager.setVillagerData(villager.getVillagerData().setLevel(ml));
-            for (AvailableTrade t : OfferFactory.enumerate(level, villager, ml)) {
-                if (OfferFactory.isArrowKey(t.key())) {
-                    Optional<MerchantOffer> regen = OfferFactory.generate(level, villager, t.key(), ml);
-                    helper.assertTrue(regen.isPresent(), "arrow key failed to regenerate");
-                    helper.assertTrue(regen.get().getResult().is(Items.TIPPED_ARROW),
-                            "regenerated arrow offer is not a tipped arrow");
-                    helper.succeed();
-                    return;
-                }
-            }
-        }
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void farmerLevelOneEnumeratesTrades(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnFarmer(helper, 1);
-        List<AvailableTrade> trades = OfferFactory.enumerate(level, villager, 1);
-        helper.assertTrue(!trades.isEmpty(), "farmer level 1 enumeration returned no trades");
-        for (AvailableTrade t : trades) {
-            helper.assertTrue(!t.previewOffer().getResult().isEmpty(),
-                    "trade " + t.key().id() + " produced an empty preview result");
-        }
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void levelUpDoesNotRestockLowerLevelTrades(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnFarmer(helper, 1);
-        UUID villagerId = villager.getUUID();
-        ServerPlayer player = MockPlayers.mock(helper);
-
-        ProfileController.onPickerSubmit(player, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
-        MerchantOffers offers = villager.getOffers();
-        helper.assertTrue(offers != null && offers.size() >= 2,
-                "expected at least the two picked level-1 offers after submit (got "
-                        + (offers == null ? "null" : offers.size()) + ")");
-
-        MerchantOffer level1Offer = offers.get(0);
-        int maxUses = level1Offer.getMaxUses();
-        helper.assertTrue(maxUses >= 3, "expected the level-1 trade to allow >=3 uses (maxUses=" + maxUses + ")");
-        level1Offer.increaseUses();
-        level1Offer.increaseUses();
-        level1Offer.increaseUses();
-        helper.assertTrue(level1Offer.getUses() == 3,
-                "sanity: level-1 trade should read 3 uses (got " + level1Offer.getUses() + ")");
-
-        villager.setVillagerData(villager.getVillagerData().setLevel(2));
-        ProfileController.onPickerSubmit(player, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
-
-        MerchantOffers after = villager.getOffers();
-        helper.assertTrue(after != null && !after.isEmpty(), "villager lost its offers after the level-2 submit");
-        int usesAfter = after.get(0).getUses();
-        helper.assertTrue(usesAfter == 3,
-                "RESTOCK EXPLOIT: level-1 trade use-count reset to " + usesAfter + " (expected 3 preserved)");
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void normalRestockStillRefillsCarriedOverTrades(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnFarmer(helper, 1);
-        UUID villagerId = villager.getUUID();
-        ServerPlayer player = MockPlayers.mock(helper);
-
-        ProfileController.onPickerSubmit(player, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
-        MerchantOffers offers = villager.getOffers();
-        helper.assertTrue(offers != null && offers.size() >= 2, "expected the two level-1 offers after submit");
-
-        MerchantOffer l1 = offers.get(0);
-        int maxUses = l1.getMaxUses();
-        while (l1.getUses() < maxUses) l1.increaseUses();
-        helper.assertTrue(l1.getUses() == maxUses && l1.isOutOfStock(),
-                "precondition: the level-1 trade should be maxed out / out of stock");
-
-        villager.setVillagerData(villager.getVillagerData().setLevel(2));
-        ProfileController.onPickerSubmit(player, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
-        helper.assertTrue(villager.getOffers().get(0).getUses() == maxUses,
-                "carry-over should preserve the maxed use-count across the level-2 pick");
-
-        villager.restock();
-        helper.assertTrue(villager.getOffers().get(0).getUses() == 0,
-                "normal restock() must clear the carried-over use-count");
-        helper.assertTrue(!villager.getOffers().get(0).isOutOfStock(),
-                "after restock the level-1 trade should be back in stock");
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void ownerCanPickThenReset(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnFarmer(helper, 1);
-        UUID villagerId = villager.getUUID();
-        VillagerProfileState state = VillagerProfileState.get(level);
-
-        ServerPlayer owner = MockPlayers.mock(helper);
-        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
-        VillagerProfile p = state.get(villagerId);
-        helper.assertTrue(p != null, "owner submit should create a profile");
-        helper.assertTrue(p.owner().isPresent() && p.owner().get().equals(owner.getUUID()),
-                "owner submit should claim ownership for the submitting player");
-        helper.assertTrue(p.picksFor(1).size() == 2, "owner's level-1 picks should be stored");
-
-        villager.setVillagerData(villager.getVillagerData().setLevel(2));
-        ProfileController.onPickerSubmit(owner, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
-        helper.assertTrue(state.get(villagerId).picksFor(2).size() == 2, "owner's level-2 picks should be stored");
-
-        ProfileController.onReset(owner, villagerId);
-        helper.assertTrue(villager.getVillagerData().getLevel() == 1, "reset should drop the villager to level 1");
-        helper.assertTrue(villager.getVillagerXp() == 0, "reset should zero the villager XP");
-        helper.assertTrue(villager.getOffers().isEmpty(), "reset should clear the live offers");
-        VillagerProfile after = state.get(villagerId);
-        helper.assertTrue(after.picksFor(1).isEmpty() && after.picksFor(2).isEmpty(), "reset should wipe all picks");
-        helper.assertTrue(after.owner().isPresent() && after.owner().get().equals(owner.getUUID()),
-                "reset should preserve ownership");
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void nonOwnerIsRejected(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnFarmer(helper, 1);
-        UUID villagerId = villager.getUUID();
-        VillagerProfileState state = VillagerProfileState.get(level);
-
-        ServerPlayer owner = MockPlayers.mock(helper);
-        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
-        helper.assertTrue(state.get(villagerId).picksFor(1).size() == 2, "precondition: owner's level-1 picks stored");
-
-        villager.setVillagerData(villager.getVillagerData().setLevel(2));
-
-        ServerPlayer intruder = MockPlayers.mock(helper);
-        ProfileController.onPickerSubmit(intruder, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
-        VillagerProfile p = state.get(villagerId);
-        helper.assertTrue(p.picksFor(2).isEmpty(), "non-owner submit must NOT store level-2 picks");
-        helper.assertTrue(p.owner().isPresent() && p.owner().get().equals(owner.getUUID()),
-                "non-owner submit must not change ownership");
-        helper.assertTrue(p.picksFor(1).size() == 2, "owner's existing picks must remain intact");
-
-        ProfileController.onReset(intruder, villagerId);
-        helper.assertTrue(villager.getVillagerData().getLevel() == 2, "non-owner reset must NOT drop the villager level");
-        VillagerProfile after = state.get(villagerId);
-        helper.assertTrue(after.owner().isPresent() && after.owner().get().equals(owner.getUUID())
-                        && after.picksFor(1).size() == 2, "non-owner reset must leave the profile intact");
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void opBypassesGates(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnFarmer(helper, 1);
-        UUID villagerId = villager.getUUID();
-        VillagerProfileState state = VillagerProfileState.get(level);
-
-        ServerPlayer owner = MockPlayers.mock(helper);
-        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
-
-        villager.setVillagerData(villager.getVillagerData().setLevel(2));
-
-        ServerPlayer op = MockPlayers.mock(helper);
-        MockPlayers.op(op);
-        helper.assertTrue(op.hasPermissions(2),
-                "sanity: the ops-list entry should grant the mock player permission level 2+");
-
-        ProfileController.onPickerSubmit(op, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
-        VillagerProfile p = state.get(villagerId);
-        helper.assertTrue(p.picksFor(2).size() == 2, "op submit should be accepted despite not owning the villager");
-        helper.assertTrue(p.owner().isPresent() && p.owner().get().equals(owner.getUUID()),
-                "op submit should not steal ownership from the original owner");
-
-        ProfileController.onReset(op, villagerId);
-        helper.assertTrue(villager.getVillagerData().getLevel() == 1, "op reset should drop the villager to level 1");
-        VillagerProfile after = state.get(villagerId);
-        helper.assertTrue(after.picksFor(1).isEmpty() && after.picksFor(2).isEmpty(), "op reset should wipe picks");
-        helper.assertTrue(after.owner().isPresent() && after.owner().get().equals(owner.getUUID()),
-                "op reset should preserve the original owner");
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void resetClosesStaleTradeSession(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnFarmer(helper, 1);
-        UUID villagerId = villager.getUUID();
-        ServerPlayer owner = MockPlayers.mock(helper);
-
-        ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
-        helper.assertTrue(villager.getTradingPlayer() == owner,
-                "precondition: villager should be trading with the player after a pick");
-        helper.assertTrue(owner.containerMenu != owner.inventoryMenu,
-                "precondition: the player should have the merchant container open after a pick");
-
-        ProfileController.onReset(owner, villagerId);
-        helper.assertTrue(villager.getTradingPlayer() == null,
-                "reset must clear the villager's tradingPlayer (stale-session flash guard)");
-        helper.assertTrue(owner.containerMenu == owner.inventoryMenu,
-                "reset must close the player's stale merchant container (stale-session flash guard)");
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnFarmer(helper, 1);
-        UUID villagerId = villager.getUUID();
-        VillagerProfileState state = VillagerProfileState.get(level);
-        ServerPlayer owner = MockPlayers.mock(helper);
-
-        TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
-        boolean original = cfg.vanillaBookLimits();
-        cfg.setVanillaBookLimits(true);
-        try {
-            helper.assertTrue(OfferFactory.countBookTemplates(level, villager, 1) == 0,
-                    "farmer level 1 should have no book templates");
-            ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
-            VillagerProfile p = state.get(villagerId);
-            helper.assertTrue(p != null && p.picksFor(1).size() == 2,
-                    "vanillaBookLimits must not block non-book picks (got "
-                            + (p == null ? "no profile" : p.picksFor(1).size()) + ")");
-        } finally {
-            cfg.setVanillaBookLimits(original);
-        }
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void roundTripsThroughCodec(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        RegistryOps<Tag> ops = level.registryAccess().createSerializationContext(NbtOps.INSTANCE);
-
-        UUID id = UUID.randomUUID();
-        UUID owner = UUID.randomUUID();
-        Map<Integer, List<TradeKey>> picks = new HashMap<>();
-        picks.put(1, List.of(
-                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "listing/1/0")),
-                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "book/1/minecraft/sharpness"))));
-        picks.put(2, List.of(
-                new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "listing/2/1"))));
-
-        MerchantOffer offerA = new MerchantOffer(new ItemCost(Items.WHEAT, 20), new ItemStack(Items.EMERALD, 1), 16, 2, 0.05f);
-        MerchantOffer offerB = new MerchantOffer(new ItemCost(Items.EMERALD, 3), new ItemStack(Items.BREAD, 6), 12, 1, 0.05f);
-        MerchantOffer offerC = new MerchantOffer(new ItemCost(Items.CARROT, 22), new ItemStack(Items.EMERALD, 1), 16, 1, 0.05f);
-        Map<Integer, List<MerchantOffer>> legacy = new HashMap<>();
-        legacy.put(1, List.of(offerA));
-        legacy.put(3, List.of(offerB, offerC));
-
-        VillagerProfile full = new VillagerProfile(id, "minecraft:librarian", Optional.of(owner), picks, legacy);
-        assertRoundTrips(helper, ops, full, "full profile");
-
-        Map<Integer, List<TradeKey>> picksOnly = new HashMap<>();
-        picksOnly.put(1, List.of(new TradeKey(ResourceLocation.fromNamespaceAndPath("tradeoptimizer", "listing/1/2"))));
-        VillagerProfile ownerless = new VillagerProfile(
-                UUID.randomUUID(), "minecraft:farmer", Optional.empty(), picksOnly, new HashMap<>());
-        assertRoundTrips(helper, ops, ownerless, "ownerless profile");
-        helper.assertTrue(ownerless.owner().isEmpty(), "sanity: the ownerless fixture should have no owner");
-        helper.succeed();
-    }
-
-    private static void assertRoundTrips(GameTestHelper helper, RegistryOps<Tag> ops,
-                                         VillagerProfile original, String label) {
-        Tag encoded = VillagerProfile.CODEC.encodeStart(ops, original).getOrThrow();
-        VillagerProfile decoded = VillagerProfile.CODEC.parse(ops, encoded).getOrThrow();
-        helper.assertTrue(decoded.id().equals(original.id()), label + ": id did not survive round-trip");
-        helper.assertTrue(decoded.profession().equals(original.profession()), label + ": profession did not survive round-trip");
-        helper.assertTrue(decoded.owner().equals(original.owner()), label + ": owner did not survive round-trip (got " + decoded.owner() + ")");
-        helper.assertTrue(decoded.picks().equals(original.picks()), label + ": picks map did not survive round-trip");
-        helper.assertTrue(decoded.legacy().keySet().equals(original.legacy().keySet()), label + ": legacy levels changed during round-trip");
-        for (int lvl : original.legacy().keySet()) {
-            List<MerchantOffer> before = original.legacy().get(lvl);
-            List<MerchantOffer> after = decoded.legacy().get(lvl);
-            helper.assertTrue(after != null && after.size() == before.size(), label + ": legacy level " + lvl + " bucket size changed");
-            for (int i = 0; i < before.size(); i++) {
-                helper.assertTrue(sameOffer(before.get(i), after.get(i)),
-                        label + ": legacy offer at level " + lvl + " index " + i + " did not survive round-trip");
-            }
-        }
-    }
-
-    private static boolean sameOffer(MerchantOffer a, MerchantOffer b) {
-        return a.getResult().getItem() == b.getResult().getItem()
-                && a.getResult().getCount() == b.getResult().getCount()
-                && a.getBaseCostA().getItem() == b.getBaseCostA().getItem()
-                && a.getBaseCostA().getCount() == b.getBaseCostA().getCount()
-                && a.getMaxUses() == b.getMaxUses()
-                && a.getXp() == b.getXp();
-    }
-
-    @GameTest(template = EMPTY)
-    public void seededPriceIsStableAndMatchesPreview(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        Villager villager = spawnFarmer(helper, 1);
-
-        TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
-        boolean originalMode = cfg.vanillaPricing();
-        cfg.setVanillaPricing(true);
-        try {
-            List<AvailableTrade> first = OfferFactory.enumerate(level, villager, 1);
-            helper.assertTrue(!first.isEmpty(), "farmer level 1 should enumerate at least one trade");
-            for (AvailableTrade t : first) {
-                TradeKey k = t.key();
-                int previewPrice = t.previewOffer().getBaseCostA().getCount();
-                Optional<MerchantOffer> o1 = OfferFactory.generate(level, villager, k, 1);
-                Optional<MerchantOffer> o2 = OfferFactory.generate(level, villager, k, 1);
-                helper.assertTrue(o1.isPresent() && o2.isPresent(), "generate should produce an offer for " + k.id());
-                int p1 = o1.get().getBaseCostA().getCount();
-                int p2 = o2.get().getBaseCostA().getCount();
-                helper.assertTrue(p1 == p2, k.id() + ": seeded price not stable across generate() calls (" + p1 + " vs " + p2 + ")");
-                helper.assertTrue(p1 == previewPrice,
-                        k.id() + ": applied price " + p1 + " != preview price " + previewPrice + " (reopen-to-reroll guarantee)");
-            }
-            List<AvailableTrade> second = OfferFactory.enumerate(level, villager, 1);
-            helper.assertTrue(second.size() == first.size(),
-                    "re-enumeration changed the trade count (" + first.size() + " -> " + second.size() + ")");
-            for (int i = 0; i < first.size(); i++) {
-                int a = first.get(i).previewOffer().getBaseCostA().getCount();
-                int b = second.get(i).previewOffer().getBaseCostA().getCount();
-                helper.assertTrue(a == b, first.get(i).key().id() + ": preview price changed on reopen (" + a + " -> " + b + ")");
-            }
-        } finally {
-            cfg.setVanillaPricing(originalMode);
-        }
-        helper.succeed();
-    }
-
-    @GameTest(template = EMPTY)
-    public void legacyBucketing(GameTestHelper helper) {
-        NeoForgeLegacyBucketingTest.bucketsLegacyOffersPerLevel(helper);
-    }
-
-    @GameTest(template = EMPTY)
-    public void bookKeyFormat(GameTestHelper helper) {
-        NeoForgeBookKeyTest.bookKeyRoundTripsInNewLowercaseFormat(helper);
     }
 }
