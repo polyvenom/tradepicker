@@ -1,6 +1,7 @@
 package com.tom.tradeoptimizer.client.ui;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.client.platform.ClientServices;
 import com.tom.tradeoptimizer.network.PickerSubmitC2S;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
@@ -22,6 +23,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.component.SuspiciousStewEffects;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.trading.MerchantOffer;
@@ -204,6 +206,8 @@ public final class TradePickerScreen extends Screen {
             } else if (result.is(Items.TIPPED_ARROW)) {
                 PotionContents pc = result.get(DataComponents.POTION_CONTENTS);
                 if (pc != null) baseKey = pc.potion().map(TradePickerScreen::holderId).orElse("");
+            } else if (result.has(DataComponents.SUSPICIOUS_STEW_EFFECTS) || result.has(DataComponents.DYED_COLOR)) {
+                baseKey = variantSortKey(trade.key(), result); // effect / colour id, never the localized label
             } else if (!result.getEnchantments().isEmpty()) {
                 ItemEnchantments enchants = result.getEnchantments();
                 Holder<Enchantment> lead = gearLead(trade.key(), enchants);
@@ -419,7 +423,33 @@ public final class TradePickerScreen extends Screen {
         if (!enchants.isEmpty()) {
             return gearEnchantLabel(trade.key(), enchants);
         }
+        return variantDisplay(trade.key(), result);
+    }
+
+    /**
+     * Stew and dyed-leather cards (#14): one card per effect or colour, so the card says which.
+     * The colour comes from the card's key, not the item: a mixed dye has no single name.
+     */
+    private static String variantDisplay(TradeKey key, ItemStack stack) {
+        SuspiciousStewEffects stew = stack.get(DataComponents.SUSPICIOUS_STEW_EFFECTS);
+        if (stew != null && stew.effects().size() == 1) {
+            return stew.effects().get(0).effect().value().getDisplayName().getString();
+        }
+        String path = key.id().getPath();
+        if (key.id().getNamespace().equals(TradeOptimizer.MOD_ID) && path.startsWith("dye/")) {
+            String[] parts = path.split("/");
+            if (parts.length > 1) return tr("color.minecraft." + parts[1]);
+        }
         return "";
+    }
+
+    /** Sort key for stew / dye cards: the effect's registry id or the card key, never the localized label. */
+    private static String variantSortKey(TradeKey key, ItemStack stack) {
+        SuspiciousStewEffects stew = stack.get(DataComponents.SUSPICIOUS_STEW_EFFECTS);
+        if (stew != null && stew.effects().size() == 1) {
+            return holderId(stew.effects().get(0).effect());
+        }
+        return key.id().toString();
     }
 
     private static String buildTooltip(AvailableTrade trade) {
@@ -443,6 +473,8 @@ public final class TradePickerScreen extends Screen {
             sb.append(r.getHoverName().getString()).append(" — ").append(allEnchantsDisplay(r.getEnchantments()));
         } else {
             sb.append(r.getHoverName().getString());
+            String variant = variantDisplay(trade.key(), r);
+            if (!variant.isEmpty()) sb.append(" — ").append(variant); // searchable by effect / colour
         }
         return sb.toString();
     }

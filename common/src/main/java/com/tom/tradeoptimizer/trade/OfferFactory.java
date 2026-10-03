@@ -20,11 +20,14 @@ import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
 import net.minecraft.world.entity.npc.villager.VillagerTrades;
 import net.minecraft.world.flag.FeatureFlags;
+import net.minecraft.world.item.DyeColor;
+import net.minecraft.world.item.DyeItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.Potion;
 import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.item.enchantment.Enchantable;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
@@ -68,6 +71,7 @@ public final class OfferFactory {
     private static final String LISTING_PREFIX = "listing/";
     private static final String GEAR_PREFIX = "gear/";
     private static final String ARROW_PREFIX = "arrow/";
+    private static final String DYE_PREFIX = "dye/";
     private static final String GEAR_SINGLE = "single/";
     private static final String GEAR_HEADLINE = "headline/";
 
@@ -147,6 +151,10 @@ public final class OfferFactory {
                     List<AvailableTrade> gear = expandGearTrade(level, villager, preview, registries);
                     if (gear.isEmpty()) out.add(new AvailableTrade(flatKey, preview));
                     else out.addAll(gear);
+                } else if (result.has(DataComponents.DYED_COLOR)) {
+                    // Dyed leather rolls random dyes; offer one card per dye colour instead (#14).
+                    // (Suspicious stew needs nothing: 1.21.11 lists one fixed-effect listing per effect.)
+                    out.addAll(expandDyeTrade(villager, preview));
                 } else {
                     out.add(new AvailableTrade(flatKey, preview));
                 }
@@ -190,6 +198,9 @@ public final class OfferFactory {
         }
         if (isArrowKey(key)) {
             return generateArrowOffer(level, villager, key, merchantLevel);
+        }
+        if (isDyeKey(key)) {
+            return generateDyeOffer(level, villager, key, merchantLevel);
         }
         ListingRef ref = parseListingKey(key);
         if (ref == null) return Optional.empty();
@@ -555,6 +566,48 @@ public final class OfferFactory {
         return new MerchantOffer(costA, tmpl.costB(), arrow, tmpl.maxUses(), tmpl.xp(), tmpl.priceMultiplier());
     }
 
+    // -------------------------------------------------------------------------
+    // Dyed leather enumeration: one card per dye colour (#14)
+    // -------------------------------------------------------------------------
+
+    private static List<AvailableTrade> expandDyeTrade(Villager villager, MerchantOffer templatePreview) {
+        List<AvailableTrade> out = new ArrayList<>();
+        Item item = templatePreview.getResult().getItem();
+        Identifier itemId = BuiltInRegistries.ITEM.getKey(item);
+        GearTemplateInfo tmpl = GearTemplateInfo.from(templatePreview);
+        for (DyeColor color : DyeColor.values()) {
+            out.add(new AvailableTrade(dyeKey(color, itemId), buildDyeOffer(tmpl, item, color)));
+        }
+        return out;
+    }
+
+    /** The item dyed exactly as if crafted with a single dye of {@code color}. */
+    private static MerchantOffer buildDyeOffer(GearTemplateInfo tmpl, Item item, DyeColor color) {
+        ItemStack dyed = DyedItemColor.applyDyes(new ItemStack(item, tmpl.count()), List.of(DyeItem.byColor(color)));
+        return new MerchantOffer(tmpl.costA(), tmpl.costB(), dyed, tmpl.maxUses(), tmpl.xp(), tmpl.priceMultiplier());
+    }
+
+    private static Optional<MerchantOffer> generateDyeOffer(ServerLevel level, Villager villager,
+                                                            TradeKey key, int merchantLevel) {
+        String[] parts = key.id().getPath().substring(DYE_PREFIX.length()).split("/");
+        int[] cur = {0};
+        DyeColor color = DyeColor.byName(parts[cur[0]++], null);
+        Identifier itemId = readId(parts, cur);
+        if (color == null || itemId == null) return Optional.empty();
+        Item item = level.registryAccess().lookupOrThrow(Registries.ITEM)
+                .get(ResourceKey.create(Registries.ITEM, itemId))
+                .map(Holder.Reference::value).orElse(null);
+        if (item == null) return Optional.empty();
+
+        GearTemplateInfo tmpl = findTemplate(level, villager, merchantLevel,
+                o -> o.getResult().getItem() == item && o.getResult().has(DataComponents.DYED_COLOR));
+        if (tmpl == null) {
+            TradeOptimizer.LOGGER.warn("[dye-regen] no dyed template found for {}", key.id());
+            return Optional.empty();
+        }
+        return Optional.of(buildDyeOffer(tmpl, item, color));
+    }
+
     private static Optional<MerchantOffer> generateGearOffer(ServerLevel level, Villager villager,
                                                              TradeKey key, int merchantLevel) {
         GearKey gk = parseGearKey(key);
@@ -630,6 +683,10 @@ public final class OfferFactory {
         return key.id().getNamespace().equals(TradeOptimizer.MOD_ID) && key.id().getPath().startsWith(ARROW_PREFIX);
     }
 
+    public static boolean isDyeKey(TradeKey key) {
+        return key.id().getNamespace().equals(TradeOptimizer.MOD_ID) && key.id().getPath().startsWith(DYE_PREFIX);
+    }
+
     /** For a HEADLINE gear key, the enchantment the player chose; empty for SINGLE / non-gear. */
     public static Optional<Identifier> headlineEnchantId(TradeKey key) {
         if (!isGearKey(key)) return Optional.empty();
@@ -657,6 +714,12 @@ public final class OfferFactory {
     static TradeKey arrowKey(Identifier potion) {
         StringBuilder sb = new StringBuilder(ARROW_PREFIX);
         appendId(sb, potion);
+        return new TradeKey(Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, sb.toString()));
+    }
+
+    static TradeKey dyeKey(DyeColor color, Identifier item) {
+        StringBuilder sb = new StringBuilder(DYE_PREFIX).append(color.getSerializedName()).append('/');
+        appendId(sb, item);
         return new TradeKey(Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, sb.toString()));
     }
 
