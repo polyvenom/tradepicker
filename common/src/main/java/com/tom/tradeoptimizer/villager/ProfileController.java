@@ -4,11 +4,14 @@ import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.api.TradePickerApi;
 import com.tom.tradeoptimizer.api.VillagerInteractionHandler;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
+import com.tom.tradeoptimizer.mixin.VillagerInvoker;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.platform.Services;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
+import net.minecraft.core.Holder;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -17,17 +20,23 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.entity.npc.VillagerData;
 import net.minecraft.world.entity.npc.VillagerProfession;
 import net.minecraft.world.entity.npc.VillagerTrades;
+import net.minecraft.world.entity.npc.VillagerType;
+import net.minecraft.world.flag.FeatureFlagSet;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.inventory.MerchantMenu;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -47,10 +56,57 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ProfileController {
     private ProfileController() {}
 
+    /** Op-equivalent permission probe: permission level 2 is the threshold for /op'd command access. */
     private static boolean isOp(ServerPlayer player) {
-        // Integer permission level 2 = the /op command threshold (1.21.1's permission API;
-        // the named PermissionLevel constants only exist on the 26.x line).
         return player.hasPermissions(2);
+    }
+
+    /** Reach leeway past the player's entity interaction range — what vanilla allows an open container. */
+    private static final double REACH_LEEWAY = 4.0;
+
+    /**
+     * The one trust gate every player action on a villager passes: the right-click path and both
+     * packet handlers (issue #9). A modified client can send a submit or reset for any villager UUID
+     * it has seen, from anywhere, so the server re-checks what the vanilla interaction path would
+     * have guaranteed — the villager is alive in the player's own level, within reach, and not
+     * mid-trade with someone else.
+     *
+     * Package-private for ActionGateGameTest.
+     */
+    static boolean canAct(ServerPlayer player, Villager villager) {
+        if (!villager.isAlive() || villager.level() != player.level()) return false;
+        if (!player.canInteractWithEntity(villager, REACH_LEEWAY)) return false;
+        var trader = villager.getTradingPlayer();
+        return trader == null || trader == player;
+    }
+
+    /**
+     * Clicks the mod hands straight to vanilla, so vanilla does exactly what it always does with
+     * them (issue #10):
+     *  - the two item interactions vanilla settles before trading (a named name tag, a matching
+     *    spawn egg). Anything else stays with us: a blanket pass-through (e.g. on sneak) would drop
+     *    the player into vanilla's own trade window, whose random rolls would then compete with the
+     *    picker's trades on the same villager;
+     *  - villagers that can't trade at all (nitwits, the unemployed);
+     *  - the clicks vanilla refuses: a baby (it shakes its head), a sleeping villager, one that's
+     *    dying or busy trading with someone else (canAct).
+     *
+     * Package-private for VanillaInteractionGateGameTest: onInteract itself needs a modded client.
+     */
+    static boolean leaveToVanilla(ServerPlayer player, Villager villager) {
+        if (isVanillaItemInteraction(player.getMainHandItem(), villager)) return true;
+        VillagerProfession prof = villager.getVillagerData().getProfession();
+        if (prof == VillagerProfession.NITWIT || prof == VillagerProfession.NONE) return true;
+        return villager.isBaby() || villager.isSleeping() || !canAct(player, villager);
+    }
+
+    /**
+     * May this player write picks for this villager? Its owner, or an op. An unowned villager
+     * (no profile yet, or a grandfathered one) belongs to whoever claims it first.
+     */
+    private static boolean mayEdit(ServerPlayer player, VillagerProfile profile) {
+        return profile == null || profile.owner().isEmpty()
+                || profile.owner().get().equals(player.getUUID()) || isOp(player);
     }
 
     /**
@@ -77,9 +133,8 @@ public final class ProfileController {
         VillagerProfession prof = data.getProfession();
         String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(prof).toString();
 
-        // Nitwits and unemployed villagers can't trade — bail.
-        if (prof == VillagerProfession.NITWIT || prof == VillagerProfession.NONE) {
-            return true;
+        if (leaveToVanilla(player, villager)) {
+            return true; // PASS to vanilla
         }
 
         // Add-on takeover hook (e.g. Trade Picker: Mastery). If an add-on claims this villager it
@@ -107,11 +162,13 @@ public final class ProfileController {
         VillagerProfileState state = VillagerProfileState.get(level);
         VillagerProfile profile = state.get(villager.getUUID());
 
-        TradeOptimizer.LOGGER.debug("[interact] villager={} prof={} mlevel={} offers={} profile={} thread={}",
-                villager.getUUID(), profName, merchantLevel,
-                villager.getOffers() == null ? "null" : villager.getOffers().size(),
-                profile == null ? "null" : ("picks=" + profile.picks().keySet() + " legacy=" + profile.legacy().keySet()),
-                Thread.currentThread().getName());
+        if (TradeOptimizer.LOGGER.isDebugEnabled()) { // the arguments build strings on every click (#20)
+            TradeOptimizer.LOGGER.debug("[interact] villager={} prof={} mlevel={} offers={} profile={} thread={}",
+                    villager.getUUID(), profName, merchantLevel,
+                    villager.getOffers() == null ? "null" : villager.getOffers().size(),
+                    profile == null ? "null" : ("picks=" + profile.picks().keySet() + " legacy=" + profile.legacy().keySet()),
+                    Thread.currentThread().getName());
+        }
 
         // Case 2: no profile yet. Two sub-cases.
         //   2a — TRULY FRESH villager: level 1 and zero XP means vanilla rolled the
@@ -138,7 +195,7 @@ public final class ProfileController {
                 // every "filled villager" path consistent. Letting vanilla handle it
                 // here was the source of the 1-frame / no-open bug since vanilla's
                 // mobInteract silently no-ops in our flow.
-                applyToVillager(level, villager, profile, player);
+                applyToVillager(level, villager, profile);
                 openMerchant(villager, player, merchantLevel);
                 return false;
             }
@@ -166,25 +223,54 @@ public final class ProfileController {
                     villager.getUUID(), player.getName().getString());
         }
 
-        if (!profile.isFilled(merchantLevel)) {
-            sendPicker(player, villager, profile, merchantLevel);
+        // A rank can be earned AND already picked but never granted - the state 1.5.0 left
+        // villagers in. Grant it before anything else reads the rank.
+        grantRanksAlreadyPicked(level, villager, profile);
+        merchantLevel = villager.getVillagerData().getLevel();
+
+        // Only the owner (or an op) chooses trades — including the no-choice auto-fill inside
+        // sendPicker, which writes picks just like a submit does. Anyone else trades with what the
+        // owner has set up so far.
+        if (!mayEdit(player, profile)) {
+            MerchantOffers live = villager.getOffers();
+            if (live == null || live.isEmpty()) {
+                player.sendSystemMessage(Component.literal(
+                        "Trade Picker: this villager's owner hasn't picked its trades yet."));
+                return false;
+            }
+            openMerchant(villager, player, merchantLevel);
+            return false;
+        }
+
+        // Pick for the LOWEST level still unpicked, not just the current one. Vanilla banks
+        // level-ups while the player is trading and applies them after the screen closes, so a
+        // villager can easily arrive here two levels ahead of its picks.
+        int unfilled = firstUnfilledLevel(profile, merchantLevel);
+        if (unfilled > 0 && sendPicker(player, villager, profile, unfilled)) {
+            return false;
+        }
+
+        // Every level up to the current one is picked. If the villager has banked enough XP for
+        // the next rank, vanilla's level-up is being held (VillagerLevelUpMixin) until the player
+        // chooses that rank's trades - so offer the picker for it now, before the rank arrives.
+        if (isDueToLevelUp(villager)
+                && !profile.isFilled(merchantLevel + 1)
+                && sendPicker(player, villager, profile, merchantLevel + 1)) {
             return false;
         }
 
         // Has entries (picks or legacy) for the current level — open the merchant menu directly
-        // via openMerchant (which handles the stale-session teardown, see that method).
+        // via openMerchant (which handles stale-session teardown and the reputation /
+        // Hero-of-the-Village discount refresh, in that order — see there).
         //
         // We do NOT rebuild the offers here. Regenerating them on every open reset each
         // trade's use-count, so picked trades restocked instantly and bypassed vanilla's
         // cooldown. The offers were already built when the picks were chosen and vanilla
-        // persists them with the villager, so reuse what's live and only refresh
-        // reputation / Hero-of-the-Village discounts. Rebuild only if they're somehow
-        // missing (e.g. another mechanic wiped them).
+        // persists them with the villager, so reuse what's live. Rebuild only if they're
+        // somehow missing (e.g. another mechanic wiped them).
         MerchantOffers live = villager.getOffers();
         if (live == null || live.isEmpty()) {
-            applyToVillager(level, villager, profile, player);
-        } else {
-            refreshSpecialPrices(villager, player);
+            applyToVillager(level, villager, profile);
         }
         openMerchant(villager, player, merchantLevel);
         return false;
@@ -199,8 +285,43 @@ public final class ProfileController {
             player.sendSystemMessage(Component.literal("Villager not found."));
             return;
         }
+        if (!canAct(player, villager)) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: {} can't act on villager {} (dead, out of reach, or busy)",
+                    player.getName().getString(), villagerId);
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: couldn't apply your picks (too far away, or the villager is busy). Right-click it again."));
+            return;
+        }
         VillagerProfession prof = villager.getVillagerData().getProfession();
         String profName = BuiltInRegistries.VILLAGER_PROFESSION.getKey(prof).toString();
+
+        // Ownership first: it's cheap, and nothing below should run for someone who may not edit.
+        VillagerProfileState state = VillagerProfileState.get(sl);
+        VillagerProfile profile = state.get(villagerId);
+        if (!mayEdit(player, profile)) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: villager {} owned by {}, not {}",
+                    villagerId, profile.owner().get(), player.getUUID());
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: this villager belongs to another player."));
+            return;
+        }
+        // No profile means the player never right-clicked this villager, so the picker was never
+        // opened for it. Only a truly fresh villager may be claimed straight from a submit: any
+        // other one has trades that onInteract would import as legacy, and a crafted packet would
+        // overwrite them.
+        if (profile == null) {
+            MerchantOffers existing = villager.getOffers();
+            boolean trulyFresh = villager.getVillagerData().getLevel() == 1 && villager.getVillagerXp() == 0;
+            if (existing != null && !existing.isEmpty() && !trulyFresh) {
+                TradeOptimizer.LOGGER.warn("[submit] rejected: villager {} was never opened in the picker", villagerId);
+                return;
+            }
+        }
+        // A level is picked once. Re-picking goes through Reset, which starts the villager over.
+        if (profile != null && profile.isFilled(level)) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: level {} of villager {} is already picked", level, villagerId);
+            return;
+        }
 
         // The picks list arrives from the client and CANNOT be trusted. Without these
         // checks a modified client could submit any villager-trade id (or any synthetic
@@ -211,7 +332,11 @@ public final class ProfileController {
         //    ever opens for the villager's current level, so a submit for a higher level
         //    is a tampered packet.
         int currentLevel = villager.getVillagerData().getLevel();
-        if (level < 1 || level > currentLevel) {
+        // The one level above the villager's own is legitimate when vanilla's level-up is being
+        // held for it - that is exactly what the picker was opened for. Anything beyond is a
+        // tampered packet.
+        boolean levellingUp = level == currentLevel + 1 && isDueToLevelUp(villager);
+        if (level < 1 || (level > currentLevel && !levellingUp)) {
             TradeOptimizer.LOGGER.warn("[submit] rejected out-of-range level {} for villager {} (at level {})",
                     level, villagerId, currentLevel);
             return;
@@ -221,7 +346,7 @@ public final class ProfileController {
         //    Re-enumerate the pool server-side and drop anything that isn't in it.
         List<AvailableTrade> available;
         try {
-            available = OfferFactory.enumerate(sl, villager, level);
+            available = enumeratePool(sl, villager, level);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("[submit] enumeration failed for {} level {}", profName, level, e);
             return;
@@ -230,10 +355,16 @@ public final class ProfileController {
         for (AvailableTrade t : available) validIds.add(t.key().id());
 
         List<TradeKey> validatedPicks = new ArrayList<>(picks.size());
+        Set<ResourceLocation> seen = new HashSet<>();
         for (TradeKey k : picks) {
-            if (validIds.contains(k.id())) validatedPicks.add(k);
-            else TradeOptimizer.LOGGER.warn("[submit] dropped invalid pick {} for {} level {}",
-                    k.id(), profName, level);
+            if (!validIds.contains(k.id())) {
+                TradeOptimizer.LOGGER.warn("[submit] dropped invalid pick {} for {} level {}", k.id(), profName, level);
+            } else if (!seen.add(k.id())) {
+                // The picker selects distinct cards, so a repeated key is a crafted packet.
+                TradeOptimizer.LOGGER.warn("[submit] dropped duplicate pick {} for {} level {}", k.id(), profName, level);
+            } else {
+                validatedPicks.add(k);
+            }
         }
         if (validatedPicks.isEmpty()) {
             player.sendSystemMessage(Component.literal(
@@ -250,6 +381,15 @@ public final class ProfileController {
                     validatedPicks.size(), picksRequired, profName, level);
             validatedPicks = new ArrayList<>(validatedPicks.subList(0, picksRequired));
         }
+        // And no fewer: a level is locked once picked, so an under-filled submit would leave it a
+        // trade short for good. The client only confirms a full selection.
+        if (validatedPicks.size() < Math.min(picksRequired, available.size())) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: {} picks, {} required for {} level {}",
+                    validatedPicks.size(), picksRequired, profName, level);
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: those trades aren't valid for this villager."));
+            return;
+        }
 
         // 3) Enforce the per-level book cap (vanillaBookLimits). The client greys out excess book
         //    selections, but a tampered client could submit more — reject here. Uses the same
@@ -258,9 +398,8 @@ public final class ProfileController {
         // Mirror sendPicker's hidePickedTrades filtering so this cap is computed from the same
         // card list the client actually saw — otherwise a filtered pool with few non-book cards
         // could produce a laxer client cap than the full-pool cap and reject a legitimate submit.
-        VillagerProfile profileForCap = VillagerProfileState.get(sl).get(villagerId);
-        List<AvailableTrade> shownToClient = profileForCap == null ? available
-                : effectiveAvailable(available, ownedTradeKeys(profileForCap, available), picksRequired);
+        List<AvailableTrade> shownToClient = profile == null ? available
+                : effectiveAvailable(available, ownedTradeKeys(profile, available), picksRequired);
         int bookCap = bookPickCap(sl, villager, level, shownToClient, picksRequired);
         int bookPicks = 0;
         for (TradeKey k : validatedPicks) {
@@ -274,24 +413,8 @@ public final class ProfileController {
             return;
         }
 
-        VillagerProfileState state = VillagerProfileState.get(sl);
-        VillagerProfile profile = state.get(villagerId);
-        // If a profile already exists with a different owner, refuse — only the owner
-        // (or an op) may overwrite picks. Without this, a non-owner who somehow reached
-        // an unfilled level (e.g. after the villager leveled up while owner was offline)
-        // could replace the owner's planned trades.
-        if (profile != null && profile.owner().isPresent()
-                && !profile.owner().get().equals(player.getUUID())
-                && !isOp(player)) {
-            TradeOptimizer.LOGGER.warn("[submit] rejected: villager {} owned by {}, not {}",
-                    villagerId, profile.owner().get(), player.getUUID());
-            player.sendSystemMessage(Component.literal(
-                    "Trade Picker: this villager belongs to another player."));
-            return;
-        }
         if (profile == null) {
-            // Shouldn't normally happen — picker only opens after onInteract creates a
-            // profile. Belt-and-braces: claim ownership now.
+            // A truly fresh villager (checked above): claim ownership now.
             profile = VillagerProfile.fresh(villagerId, profName, player.getUUID());
         } else if (profile.owner().isEmpty()) {
             profile = profile.withOwner(player.getUUID());
@@ -300,7 +423,26 @@ public final class ProfileController {
         profile.setPicks(level, validatedPicks);
         state.update(profile);
 
-        applyToVillager(sl, villager, profile, player);
+        // Grant the held level-up now, so the rank and the trades the player chose for it arrive
+        // together. This is the whole of vanilla's increaseMerchantCareer minus its random trade
+        // roll, which is what the picker replaces.
+        if (levellingUp && grantPendingLevel(villager, level)) {
+            currentLevel = level;
+            TradeOptimizer.LOGGER.info("Levelled {} to {} on the player's picks",
+                    profName, level);
+        }
+
+        applyToVillager(sl, villager, profile);
+
+        // More than one level can be waiting: vanilla queues a level-up rather than applying
+        // it, and only drains that queue once the player stops trading, so a long session can
+        // bank two or three. Chain straight into the next picker instead of opening the
+        // merchant - otherwise every level but the last is skipped for good and the villager
+        // ends up at max level with trades missing.
+        int nextUnfilled = firstUnfilledLevel(profile, currentLevel);
+        if (nextUnfilled > 0 && sendPicker(player, villager, profile, nextUnfilled)) {
+            return;
+        }
 
         // Auto-open the merchant right here so the user doesn't have to right-click
         // again after confirming picks. Same open path (with stale-session teardown)
@@ -308,9 +450,40 @@ public final class ProfileController {
         openMerchant(villager, player, level);
     }
 
+    /**
+     * Called after any mob conversion (the Fabric conversion event wires here).
+     *
+     * Vanilla's Mob.convertTo DISCARDS the old entity and creates a new one — the UUID
+     * is never copied (ConversionType.SINGLE copies position/effects/team only). Profiles
+     * are keyed by villager UUID, so without this hook a zombify→cure round trip orphans
+     * the profile: the cured villager keeps its trade offers (vanilla copies those in
+     * ZombieVillager.finishConversion) but loses its picks and owner, and the next
+     * right-click imports its own picked trades — plus any random vanilla level-up rolls
+     * that snuck in — as permanent "legacy" offers, silently skipping the picker
+     * (playtest: mystery villager with 6 unpicked offers and no profile).
+     *
+     * Re-keying on every conversion keeps the profile attached through the whole chain:
+     * villager → zombie villager (profile parks on the zombie's UUID) → cured villager.
+     */
+    public static void onMobConverted(net.minecraft.world.entity.LivingEntity previous,
+                                      net.minecraft.world.entity.LivingEntity converted) {
+        if (!(previous.level() instanceof ServerLevel level)) return;
+        VillagerProfileState state = VillagerProfileState.get(level);
+        if (state.rekey(previous.getUUID(), converted.getUUID())) {
+            TradeOptimizer.LOGGER.info("Re-keyed villager profile {} -> {} ({} conversion)",
+                    previous.getUUID(), converted.getUUID(),
+                    BuiltInRegistries.ENTITY_TYPE.getKey(converted.getType()));
+        }
+    }
+
     public static void onReset(ServerPlayer player, UUID villagerId) {
         ServerLevel sl = player.serverLevel();
         if (!(sl.getEntity(villagerId) instanceof Villager villager)) return;
+        if (!canAct(player, villager)) {
+            TradeOptimizer.LOGGER.warn("[reset] rejected: {} can't act on villager {} (dead, out of reach, or busy)",
+                    player.getName().getString(), villagerId);
+            return;
+        }
 
         // Reset is destructive (wipes XP, level, and locked-in trades). Lock it to the
         // owner — vanilla already scopes reputation per-player, so per-player ownership
@@ -361,10 +534,13 @@ public final class ProfileController {
         // menu fails MerchantMenu.stillValid() on the next tick and self-closes after one frame
         // (the "first reopen after reset flashes, second is fine" bug). Tear the stale session down
         // now so the next open starts from a clean slate.
-        if (player.containerMenu != player.inventoryMenu) {
-            player.closeContainer();
+        //
+        // Only THIS villager's session: a reset packet must not close whatever else the sender has
+        // open (issue #9). canAct above guarantees the villager trades with this player or no one.
+        if (villager.getTradingPlayer() == player) {
+            if (player.containerMenu instanceof MerchantMenu) player.closeContainer();
+            villager.setTradingPlayer(null);
         }
-        villager.setTradingPlayer(null);
 
         player.sendSystemMessage(Component.literal(
                 "Villager reset to Novice. Right-click to pick new trades."));
@@ -375,10 +551,13 @@ public final class ProfileController {
     // -------------------------------------------------------------------------
 
     /**
-     * Open the merchant menu for {@code player}, robust against a stale trade session.
+     * Open the merchant menu for {@code player}: tear down any stale trade session, THEN refresh
+     * the per-player discounts, THEN open. The order is load-bearing twice over.
      *
-     * Closes whatever container the player still has open FIRST, then sets the trading player, then
-     * opens the merchant. The order matters because of how vanilla wires these together:
+     * The vanilla client sends TWO packets per entity right-click (interact_at, then interact), and
+     * Fabric's UseEntityCallback fires for each, so onInteract runs twice per click and this method
+     * must be idempotent. On the second run the player's open container is the MerchantMenu the
+     * first run just created, and vanilla wires menu teardown deep into villager state:
      *
      *   - {@code openTradingScreen} -> {@code ServerPlayer.openMenu} ALSO closes the current
      *     container, but it does so AFTER we would have set the trading player.
@@ -392,12 +571,21 @@ public final class ProfileController {
      * Tearing the stale session down up front means {@code openMenu} has nothing left to close, so
      * the trading player we set below survives. Same teardown the reset path uses; doing it here
      * makes every merchant-open site idempotent regardless of any lingering session.
+     *
+     * The discount refresh must come after that teardown: a MerchantMenu's {@code removed()} calls
+     * {@code villager.setTradingPlayer(null)}, which runs vanilla's {@code resetSpecialPrices()} and
+     * zeroes every offer's specialPriceDiff. A refresh done BEFORE the open gets wiped by the stale
+     * menu's teardown and the menu the player actually sees shows full prices ("reputation doesn't
+     * work"). Refreshing after {@code setTradingPlayer} (which never resets prices on a non-null
+     * player) means the offers sent to the client are the discounted ones, however many times the
+     * open is re-entered.
      */
-    private static void openMerchant(Villager villager, ServerPlayer player, int merchantLevel) {
+    static void openMerchant(Villager villager, ServerPlayer player, int merchantLevel) {
         if (player.containerMenu != player.inventoryMenu) {
             player.closeContainer();
         }
         villager.setTradingPlayer(player);
+        refreshSpecialPrices(villager, player);
         villager.openTradingScreen(player, villager.getDisplayName(), merchantLevel);
     }
 
@@ -439,6 +627,88 @@ public final class ProfileController {
             profile.setLegacy(lvl, bucket);
             idx += count;
         }
+    }
+
+    /**
+     * Mirrors {@code Mob.checkAndHandleImportantInteractions}: the only two item interactions
+     * vanilla settles on a mob before trading is ever considered.
+     *
+     * Both are narrower than "is this a name tag / a spawn egg", and deliberately so. An unnamed
+     * name tag does nothing in vanilla, and a spawn egg for a different mob does nothing either —
+     * in both cases vanilla falls through to the trade screen, so if we passed those along the
+     * player would land in the vanilla merchant UI instead of the picker. Matching vanilla's
+     * exact conditions keeps that window unreachable.
+     *
+     * Package-private so VanillaInteractionGateGameTest can exercise it directly — onInteract
+     * itself is gated behind ServerPlayNetworking.canSend, which a mock player can't satisfy.
+     */
+    static boolean isVanillaItemInteraction(ItemStack stack, Villager villager) {
+        if (stack.is(Items.NAME_TAG)) {
+            return stack.has(DataComponents.CUSTOM_NAME);
+        }
+        // 1.21.1: spawnsEntity is an instance method on SpawnEggItem (static on 26.x).
+        return stack.getItem() instanceof SpawnEggItem egg && egg.spawnsEntity(stack, villager.getType());
+    }
+
+    /**
+     * The last picker each player was sent, so one right-click can't open the picker twice.
+     *
+     * The vanilla client sends TWO packets per entity right-click (interact_at, then interact) and
+     * the loader's interact event fires for both, so onInteract runs twice per click - see
+     * openMerchant, which is written to be idempotent for the same reason. sendPicker had no such
+     * guard: both runs shipped a payload, the client built the screen twice, and the first one was
+     * torn down a frame after it rendered. That is the blink the player sees as the picker opens.
+     */
+    private record PickerSend(UUID villagerId, int merchantLevel, long gameTime) {}
+
+    private static final Map<UUID, PickerSend> lastPickerSend = new HashMap<>();
+
+    /** Two runs of the same click land in the same tick, or within one of it under load. */
+    private static final long DUPLICATE_CLICK_TICKS = 2;
+
+    /**
+     * What a villager's trade pool depends on on this Minecraft line: the merchant level, the
+     * profession and biome type whose listings are enumerated, the enabled feature flags (the trade
+     * rebalance swaps the whole table), the registries the cards were rolled from, and the config
+     * (pricing mode, gear mode).
+     */
+    private record PoolKey(int merchantLevel, VillagerProfession profession, VillagerType type,
+                           FeatureFlagSet features, HolderLookup.Provider registries, int configRevision) {}
+
+    /** The last pool enumerated for a villager; {@code gameTime} is when, for expiry. */
+    private record PoolEntry(PoolKey key, long gameTime, List<AvailableTrade> pool) {}
+
+    /**
+     * The last trade pool enumerated for each villager, reused by the second run of a click and by
+     * the submit's validation (#20). Enumerating is the expensive step (headline gear re-rolls
+     * vanilla's enchanting up to 256 times per enchantment, book listings are probed for their
+     * enchantment lists) and its result depends only on the villager, the level and the config, so
+     * one click and its submit used to compute the same list three times. Validating against the
+     * very list the picker was built from is also the stricter check.
+     */
+    private static final Map<UUID, PoolEntry> poolCache = new HashMap<>();
+
+    /** Ten minutes: long enough for a player to read the picker, short enough to bound the map. */
+    private static final long POOL_CACHE_TICKS = 12_000;
+
+    /** {@link OfferFactory#enumerate}, cached per villager. The list is unmodifiable: it's shared. */
+    static List<AvailableTrade> enumeratePool(ServerLevel level, Villager villager, int merchantLevel) {
+        long now = level.getGameTime();
+        HolderLookup.Provider registries = level.registryAccess();
+        VillagerData data = villager.getVillagerData();
+        PoolKey key = new PoolKey(merchantLevel, data.getProfession(), data.getType(), level.enabledFeatures(),
+                registries, TradeOptimizerConfig.revision());
+        PoolEntry hit = poolCache.get(villager.getUUID());
+        if (hit != null && hit.key().equals(key) && now >= hit.gameTime()
+                && now - hit.gameTime() <= POOL_CACHE_TICKS) {
+            return hit.pool();
+        }
+        List<AvailableTrade> pool = List.copyOf(OfferFactory.enumerate(level, villager, merchantLevel));
+        // Drop expired entries and any left over from another world.
+        poolCache.values().removeIf(e -> e.key().registries() != registries
+                || now < e.gameTime() || now - e.gameTime() > POOL_CACHE_TICKS);
+        poolCache.put(villager.getUUID(), new PoolEntry(key, now, pool));
+        return pool;
     }
 
     /** Vanilla generates at most this many trades per merchant level. */
@@ -528,23 +798,103 @@ public final class ProfileController {
         return out.size() >= picksRequired ? out : available;
     }
 
-    private static void sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
+    /**
+     * Grant every held rank whose picks are already stored, then rebuild the offers.
+     *
+     * 1.5.0's no-choice path saved a rank's picks but never granted the rank, so a villager it
+     * touched can carry exactly this state: the XP earned, the picks stored, the rank never given.
+     * The picker treats a rank with stored picks as done and won't reopen for it, so without this
+     * the villager would stay one rank short for good — and since applyToVillager only walks
+     * levels up to the current rank, those stored picks would never reach its offers either.
+     *
+     * Grants only what is both earned (vanilla's own threshold) and already picked; a rank that
+     * still needs choosing is left for the picker.
+     *
+     * Package-private for LevelUpHoldGameTest.
+     */
+    static void grantRanksAlreadyPicked(ServerLevel level, Villager villager, VillagerProfile profile) {
+        int before = villager.getVillagerData().getLevel();
+        while (isDueToLevelUp(villager)
+                && profile.isFilled(villager.getVillagerData().getLevel() + 1)
+                && grantPendingLevel(villager, villager.getVillagerData().getLevel() + 1)) {
+            // grantPendingLevel raised the rank; loop in case the XP covers another.
+        }
+        int after = villager.getVillagerData().getLevel();
+        if (after != before) {
+            applyToVillager(level, villager, profile);
+            TradeOptimizer.LOGGER.info("Granted {} from level {} to {} on picks already stored",
+                    profile.profession(), before, after);
+        }
+    }
+
+    /**
+     * Grant a held level-up, when {@code level} is the rank the picker was opened for.
+     *
+     * Must run BEFORE the picks are applied: applyToVillager only walks levels 1..current, so a
+     * rank granted afterwards would have its trades left out of the offer list.
+     *
+     * Package-private for LevelUpHoldGameTest.
+     */
+    static boolean grantPendingLevel(Villager villager, int level) {
+        if (level != villager.getVillagerData().getLevel() + 1 || !isDueToLevelUp(villager)) return false;
+        villager.setVillagerData(villager.getVillagerData().setLevel(level));
+        return true;
+    }
+
+    /**
+     * Vanilla's own {@code shouldIncreaseLevel} condition, recomputed here because the level-up it
+     * guards is held by VillagerLevelUpMixin until the player has picked.
+     *
+     * Deliberately the same two checks vanilla makes - the rank can still rise, and the XP earned
+     * has reached the bar for it - so a villager is offered the next rank at exactly the moment
+     * vanilla would have granted it.
+     *
+     * Package-private for LevelUpHoldGameTest.
+     */
+    static boolean isDueToLevelUp(Villager villager) {
+        int level = villager.getVillagerData().getLevel();
+        return VillagerData.canLevelUp(level)
+                && villager.getVillagerXp() >= VillagerData.getMaxXpPerLevel(level);
+    }
+
+    /**
+     * The lowest merchant level from 1..{@code currentLevel} that still has neither picks nor
+     * legacy offers, or -1 when every level is accounted for.
+     *
+     * Scanning from the bottom rather than looking only at {@code currentLevel} is what keeps a
+     * multi-level jump from silently dropping a level's trades.
+     *
+     * Package-private for LevelCatchUpGameTest.
+     */
+    static int firstUnfilledLevel(VillagerProfile profile, int currentLevel) {
+        for (int lvl = 1; lvl <= currentLevel; lvl++) {
+            if (!profile.isFilled(lvl)) return lvl;
+        }
+        return -1;
+    }
+
+    /**
+     * @return true when this call took responsibility for what the player sees next - the picker
+     *         payload was sent, or the level auto-progressed and the merchant was opened here.
+     *         false means nothing was shown and the caller should fall back to opening the merchant.
+     */
+    static boolean sendPicker(ServerPlayer player, Villager villager, VillagerProfile profile, int merchantLevel) {
         ServerLevel level = player.serverLevel();
 
         List<AvailableTrade> available;
         try {
-            available = OfferFactory.enumerate(level, villager, merchantLevel);
+            available = enumeratePool(level, villager, merchantLevel);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("Trade enumeration failed for {} level {}",
                     profile.profession(), merchantLevel, e);
             player.sendSystemMessage(Component.literal(
                     "Trade Optimizer: failed to enumerate trades (see server log)."));
-            return;
+            return false;
         }
         if (available.isEmpty()) {
             player.sendSystemMessage(Component.literal(
                     "No trades available for " + profile.profession() + " level " + merchantLevel));
-            return;
+            return false;
         }
 
         // How many trades the player must choose = how many vanilla actually grants at this level
@@ -561,16 +911,45 @@ public final class ProfileController {
             for (AvailableTrade trade : available) autoPicks.add(trade.key());
 
             VillagerProfileState state = VillagerProfileState.get(level);
+
+            // A rank with nothing to choose still has to be GRANTED. This path writes the picks
+            // itself instead of going through onPickerSubmit, so without this the villager sat at
+            // its old rank for good - vanilla's own level-up is cancelled for managed villagers,
+            // so nothing else would ever raise it. That is the max-level librarian that stopped
+            // levelling: its master rank offers a single trade, so it never reaches the picker.
+            boolean granted = grantPendingLevel(villager, merchantLevel);
+
             profile.setPicks(merchantLevel, autoPicks);
             state.update(profile);
 
-            applyToVillager(level, villager, profile, player);
-            openMerchant(villager, player, merchantLevel);
+            applyToVillager(level, villager, profile);
 
-            TradeOptimizer.LOGGER.info("Auto-progressed {} level {}: {} option(s), no choice needed",
-                    profile.profession(), merchantLevel, available.size());
-            return;
+            TradeOptimizer.LOGGER.info("Auto-progressed {} level {}: {} option(s), no choice needed{}",
+                    profile.profession(), merchantLevel, available.size(),
+                    granted ? " (rank granted)" : "");
+
+            // This level needed no choice, but another may still be unpicked behind it - carry on
+            // down the chain before showing the merchant.
+            int currentLevel = villager.getVillagerData().getLevel();
+            int next = firstUnfilledLevel(profile, currentLevel);
+            if (next > 0 && next != merchantLevel) {
+                return sendPicker(player, villager, profile, next);
+            }
+            openMerchant(villager, player, currentLevel);
+            return true;
         }
+
+        // Same click, same villager, same level -> the payload is already on its way. Report it
+        // as handled so the caller doesn't fall back to opening the merchant.
+        PickerSend send = new PickerSend(villager.getUUID(), merchantLevel, level.getGameTime());
+        PickerSend previous = lastPickerSend.get(player.getUUID());
+        if (previous != null
+                && previous.villagerId().equals(send.villagerId())
+                && previous.merchantLevel() == send.merchantLevel()
+                && send.gameTime() - previous.gameTime() <= DUPLICATE_CLICK_TICKS) {
+            return true;
+        }
+        lastPickerSend.put(player.getUUID(), send);
 
         TradeOptimizer.LOGGER.info("Picker for {} level {}: {} trade options, pick {}",
                 profile.profession(), merchantLevel, available.size(), picksRequired);
@@ -595,15 +974,17 @@ public final class ProfileController {
         );
         if (!Services.NETWORK.canSendOpenPicker(player)) {
             TradeOptimizer.LOGGER.warn("Client can't receive OPEN_PICKER (mod missing on client?)");
-            return;
+            return false;
         }
         try {
             Services.NETWORK.sendOpenPicker(player, payload);
+            return true;
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("Failed to send picker payload ({} trades)",
                     available.size(), e);
             player.sendSystemMessage(Component.literal(
                     "Trade Optimizer: picker send failed (see server log)."));
+            return false;
         }
     }
 
@@ -619,26 +1000,42 @@ public final class ProfileController {
      * (same result + base cost), we KEEP the existing offer instance so its accumulated uses (and
      * demand) survive. Only a genuinely new pick gets a fresh, empty offer.
      *
-     * Legacy levels keep their imported MerchantOffers verbatim — the profile holds those exact
-     * instances and re-adds them below, so their use-counts are already preserved across rebuilds.
-     * They're excluded from the carry-over pool so a pick can't consume (and then duplicate) one.
+     * Legacy levels get the same treatment, matched by value: the live instance is claimed for
+     * each stored legacy offer where one exists, and the stored copy is only a fallback. The
+     * profile's copies are a snapshot taken at import time, so relying on them would roll uses
+     * back to zero on the first rebuild after a world reload (audit #8).
      *
-     * Reputation modifiers (from curing or hero of the village) are applied if a player is provided.
+     * Reputation / Hero-of-the-Village discounts are NOT applied here: they're per-player,
+     * per-session state, written by {@link #openMerchant} right before the menu opens (after the
+     * stale-session teardown that would otherwise wipe them).
      */
-    private static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile, ServerPlayer player) {
+    // Package-private (not private) so the profile-persistence gametest can drive a rebuild
+    // directly; the public callers all sit behind networking gates it can't reach.
+    static void applyToVillager(ServerLevel level, Villager villager, VillagerProfile profile) {
         int currentLevel = villager.getVillagerData().getLevel();
 
-        // Carry-over pool of the previously-live PICK offers, used to preserve use-counts. Legacy
-        // offers are filtered out by identity: the profile re-adds those same instances, so reusing
-        // one here would list it twice.
-        Set<MerchantOffer> legacyInstances = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (List<MerchantOffer> bucket : profile.legacy().values()) legacyInstances.addAll(bucket);
+        // Pool of the previously-live offers, drawn on to preserve accrued uses/demand.
         List<MerchantOffer> carryOver = new ArrayList<>();
         MerchantOffers previous = villager.getOffers();
-        if (previous != null) {
-            for (MerchantOffer offer : previous) {
-                if (!legacyInstances.contains(offer)) carryOver.add(offer);
+        if (previous != null) carryOver.addAll(previous);
+
+        // Legacy claims its live instances FIRST, matched by value. Identity would be wrong here:
+        // the profile's legacy offers are only the same objects as the live ones within a single
+        // session — after a reload the profile decodes into fresh MerchantOffers, so an identity
+        // check finds nothing, the live legacy offers fall into the carry-over pool, and the stale
+        // decoded snapshots get listed instead. That rolls back use-counts (a free restock) and can
+        // duplicate a trade when a pick happens to match one. Claiming first also stops a pick from
+        // consuming a legacy instance and listing it twice.
+        Map<Integer, List<MerchantOffer>> resolvedLegacy = new HashMap<>();
+        for (int lvl = 1; lvl <= currentLevel; lvl++) {
+            List<MerchantOffer> stored = profile.legacyFor(lvl);
+            if (stored.isEmpty()) continue;
+            List<MerchantOffer> resolved = new ArrayList<>(stored.size());
+            for (MerchantOffer snapshot : stored) {
+                MerchantOffer live = takeMatching(carryOver, snapshot);
+                resolved.add(live != null ? live : snapshot);
             }
+            resolvedLegacy.put(lvl, resolved);
         }
 
         MerchantOffers offers = new MerchantOffers();
@@ -654,11 +1051,10 @@ public final class ProfileController {
                 MerchantOffer kept = takeMatching(carryOver, fresh);
                 offers.add(kept != null ? kept : fresh);
             }
-            offers.addAll(profile.legacyFor(lvl));
+            offers.addAll(resolvedLegacy.getOrDefault(lvl, List.of()));
         }
 
         Services.PLATFORM.setVillagerOffers(villager, offers);
-        refreshSpecialPrices(villager, player);
     }
 
     /**
@@ -685,9 +1081,12 @@ public final class ProfileController {
      *
      * Vanilla computes these in Villager.updateSpecialPrices(player), writing each
      * discount into the offer's specialPriceDiff, and only calls it from startTrading().
-     * Because we open the merchant manually (setTradingPlayer + openTradingScreen, to
-     * dodge the 1-frame menu bug) that call was being skipped, so curing / Hero discounts
-     * never applied. We reproduce it here.
+     * Because we open the merchant manually (to dodge the 1-frame menu bug) that call was
+     * being skipped, so curing / Hero discounts never applied. We reproduce it here.
+     *
+     * Called ONLY from {@link #openMerchant}, after the stale-session teardown: anything earlier
+     * gets wiped when the teardown's setTradingPlayer(null) runs vanilla's resetSpecialPrices()
+     * (that ordering bug shipped as "reputation doesn't work").
      *
      * updateSpecialPrices ACCUMULATES (it adds to specialPriceDiff, never resets), so we
      * clear each offer first — otherwise re-opening a villager would stack the discount
@@ -700,6 +1099,6 @@ public final class ProfileController {
         for (MerchantOffer offer : offers) {
             offer.resetSpecialPriceDiff();
         }
-        Services.PLATFORM.updateVillagerSpecialPrices(villager, player);
+        ((VillagerInvoker) villager).tradeoptimizer$updateSpecialPrices(player);
     }
 }

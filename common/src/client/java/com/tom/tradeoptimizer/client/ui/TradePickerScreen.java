@@ -1,5 +1,7 @@
 package com.tom.tradeoptimizer.client.ui;
 
+import com.mojang.blaze3d.platform.InputConstants;
+import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.client.platform.ClientServices;
 import com.tom.tradeoptimizer.network.PickerSubmitC2S;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
@@ -13,19 +15,25 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.component.SuspiciousStewEffects;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.item.trading.MerchantOffer;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -47,13 +55,18 @@ public final class TradePickerScreen extends Screen {
     private static final int TOP_PAD = 70; // raised to make room for the search box
     private static final int BOTTOM_RESERVED = 60;
     private static final int LABEL_RIGHT_PAD = 6;
+    /** 3s — a submit that hasn't been answered by then was refused server-side. */
+    private static final int SUBMIT_TIMEOUT_TICKS = 60;
 
     private final OpenPickerS2C data;
-    private final Set<Integer> selectedIndices = new HashSet<>();
+    // Insertion-ordered: the villager lists the trades in the order they were clicked (#23).
+    private final Set<Integer> selectedIndices = new LinkedHashSet<>();
 
     /** Pre-computed display data per trade — never changes for this session. */
     private final List<String> cardLabels = new ArrayList<>();
     private final List<String> cardTooltips = new ArrayList<>();
+    /** What the search box matches: the trade itself, never the annotations around it (#18). */
+    private final List<String> cardSearch = new ArrayList<>();
 
     /** Cards this villager already sells (earlier-level picks / legacy) — marked, still pickable. */
     private final Set<Integer> ownedIndices = new HashSet<>();
@@ -66,13 +79,34 @@ public final class TradePickerScreen extends Screen {
 
     private EditBox searchBox;
     private Button confirmBtn;
+    private Button cancelBtn;
     private int scrollRow = 0;
+    /** Survives init(): a resize or GUI-scale change rebuilds every widget (#18). */
+    private String searchQuery = "";
+
+    /**
+     * Set once Confirm is pressed. The screen deliberately stays up while the server works:
+     * closing to the world first meant the player watched the world for the network round-trip
+     * before the merchant (or the next level's picker) appeared — a blink on every confirm.
+     * Whatever the server opens next replaces this screen, so the transition is seamless.
+     */
+    private boolean submitted = false;
+
+    /** Ticks spent waiting on the server, so a rejected submit can't strand the player. */
+    private int submittedTicks = 0;
 
     private String titleText = "";
     private String statusText = "";
+    private String noMatchText = "";
+
+    /** Per-frame allocation cuts (#20): fitted labels by maxWidth then text, and the scroll hint by the ints it shows. */
+    private final Map<Integer, Map<String, String>> fitCache = new HashMap<>();
+    private String hintText = "";
+    private int hintRow = -1;
+    private int hintMax = -1;
 
     public TradePickerScreen(OpenPickerS2C data) {
-        super(Component.literal("Trade Picker"));
+        super(Component.translatable("tradeoptimizer.picker.title"));
         this.data = data;
     }
 
@@ -81,8 +115,10 @@ public final class TradePickerScreen extends Screen {
         super.init();
 
         // Pre-compute display data once.
+        fitCache.clear(); // widths change with GUI scale; also bounds growth
         cardLabels.clear();
         cardTooltips.clear();
+        cardSearch.clear();
         ownedIndices.clear();
         Set<ResourceLocation> ownedIds = new HashSet<>();
         for (var key : data.ownedKeys()) ownedIds.add(key.id());
@@ -91,76 +127,103 @@ public final class TradePickerScreen extends Screen {
             boolean owned = ownedIds.contains(trade.key().id());
             if (owned) ownedIndices.add(i);
             cardLabels.add(buildCardLabel(trade));
-            cardTooltips.add(buildTooltip(trade) + (owned ? "  (already on this villager)" : ""));
+            String text = buildTooltip(trade);
+            cardSearch.add(text.toLowerCase(Locale.ROOT));
+            String note = OfferFactory.headlineEnchantId(trade.key()).isPresent()
+                    ? tr("tradeoptimizer.picker.headline_note") : "";
+            cardTooltips.add(text + note + (owned ? tr("tradeoptimizer.picker.owned") : ""));
         }
         rebuildSortOrder();
-        rebuildFilter("");
+        rebuildFilter(searchQuery);
+        scrollRow = Math.min(scrollRow, maxScroll()); // a bigger window can show more rows: don't strand the view
 
-        titleText = String.format(Locale.ROOT, "%s — %s — pick %d trade(s)",
+        titleText = tr("tradeoptimizer.picker.heading",
                 shortProf(data.profession()), levelName(data.level()), data.picksRequired());
         if (data.maxBookPicks() < data.picksRequired()) {
-            titleText += String.format(Locale.ROOT, " (max %d book)", data.maxBookPicks());
+            titleText += tr("tradeoptimizer.picker.max_books", data.maxBookPicks());
         }
+        noMatchText = tr("tradeoptimizer.picker.no_match");
         rebuildStatusText();
 
         // Search box (centered horizontally)
         int boxW = COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP;
         int boxX = (this.width - boxW) / 2;
-        searchBox = new EditBox(this.font, boxX, 44, boxW, 18, Component.literal("Search"));
+        searchBox = new EditBox(this.font, boxX, 44, boxW, 18, Component.translatable("tradeoptimizer.picker.search"));
         searchBox.setMaxLength(48);
-        searchBox.setHint(Component.literal("Search trades (e.g. 'mending', 'sharp', 'emerald')"));
+        searchBox.setHint(Component.translatable("tradeoptimizer.picker.search_hint"));
+        searchBox.setValue(searchQuery);
         searchBox.setResponder(text -> {
+            searchQuery = text;
             scrollRow = 0;
             rebuildFilter(text);
         });
         addRenderableWidget(searchBox);
 
-        confirmBtn = Button.builder(Component.literal("Confirm"), b -> onConfirm())
+        confirmBtn = Button.builder(Component.translatable("tradeoptimizer.picker.confirm"), b -> onConfirm())
                 .bounds(this.width / 2 - 84, this.height - 30, 80, 20)
                 .build();
-        confirmBtn.active = false;
         addRenderableWidget(confirmBtn);
 
-        addRenderableWidget(Button.builder(Component.literal("Cancel"), b -> onClose())
+        cancelBtn = Button.builder(Component.translatable("tradeoptimizer.picker.cancel"), b -> onClose())
                 .bounds(this.width / 2 + 4, this.height - 30, 80, 20)
-                .build());
+                .build();
+        addRenderableWidget(cancelBtn);
+
+        // init() runs again on every resize or GUI-scale change, and the selection survives it.
+        // The buttons must agree with it: Confirm went dark while the status still read "2/2" (#18).
+        confirmBtn.active = !submitted && selectedIndices.size() == data.picksRequired();
+        cancelBtn.active = !submitted;
+        if (submitted) statusText = tr("tradeoptimizer.picker.applying");
     }
 
     /**
      * Default sort by type (issue #7): plain trades first, enchanted cards (books + enchanted
      * gear — the big expanded walls) after them; within each group by result item, then by the
-     * label's base name (e.g. the enchantment), then by numeric level, then by pool order as
-     * the stable tie. Only the DISPLAY order changes — selections and network picks still use
-     * pool indices.
+     * lead enchantment / potion registry id, then by its numeric level, then by pool order as
+     * the stable tie. Keys come from the data, never from the (localized) labels. Only the
+     * DISPLAY order changes — selections and network picks still use pool indices.
      */
     private void rebuildSortOrder() {
         sortedOrder.clear();
         for (int i = 0; i < data.available().size(); i++) sortedOrder.add(i);
         List<Boolean> enchantedGroup = new ArrayList<>(data.available().size());
         List<String> itemIds = new ArrayList<>(data.available().size());
-        List<String> baseNames = new ArrayList<>(data.available().size());
+        List<String> baseKeys = new ArrayList<>(data.available().size());
         List<Integer> levels = new ArrayList<>(data.available().size());
         for (int i = 0; i < data.available().size(); i++) {
-            ItemStack result = data.available().get(i).previewOffer().getResult();
+            AvailableTrade trade = data.available().get(i);
+            ItemStack result = trade.previewOffer().getResult();
             enchantedGroup.add(result.is(Items.ENCHANTED_BOOK) || !result.getEnchantments().isEmpty());
             itemIds.add(BuiltInRegistries.ITEM.getKey(result.getItem()).toString());
-            String label = cardLabels.get(i);
-            // Gear labels can end in " +N" (bonus enchant count) — not part of the name.
-            int plus = label.lastIndexOf(" +");
-            if (plus > 0) label = label.substring(0, plus);
-            // A trailing roman/arabic numeral is the level; the rest is the base name.
-            int lastSpace = label.lastIndexOf(' ');
-            int lvl = lastSpace > 0 ? parseLevel(label.substring(lastSpace + 1)) : 0;
-            if (lvl > 0) label = label.substring(0, lastSpace);
-            baseNames.add(label);
-            levels.add(Math.max(lvl, 1));
+            String baseKey = "";
+            int lvl = 0;
+            if (result.is(Items.ENCHANTED_BOOK)) {
+                ItemEnchantments stored = result.get(DataComponents.STORED_ENCHANTMENTS);
+                if (stored != null && !stored.isEmpty()) {
+                    Holder<Enchantment> h = stored.keySet().iterator().next();
+                    baseKey = holderId(h);
+                    lvl = stored.getLevel(h);
+                }
+            } else if (result.is(Items.TIPPED_ARROW)) {
+                PotionContents pc = result.get(DataComponents.POTION_CONTENTS);
+                if (pc != null) baseKey = pc.potion().map(TradePickerScreen::holderId).orElse("");
+            } else if (result.has(DataComponents.SUSPICIOUS_STEW_EFFECTS) || result.has(DataComponents.DYED_COLOR)) {
+                baseKey = variantSortKey(trade.key(), result); // effect / colour id, never the localized label
+            } else if (!result.getEnchantments().isEmpty()) {
+                ItemEnchantments enchants = result.getEnchantments();
+                Holder<Enchantment> lead = gearLead(trade.key(), enchants);
+                baseKey = holderId(lead);
+                lvl = enchants.getLevel(lead);
+            }
+            baseKeys.add(baseKey);
+            levels.add(lvl);
         }
         sortedOrder.sort((a, b) -> {
             int c = Boolean.compare(enchantedGroup.get(a), enchantedGroup.get(b));
             if (c != 0) return c;
             c = itemIds.get(a).compareTo(itemIds.get(b));
             if (c != 0) return c;
-            c = baseNames.get(a).compareTo(baseNames.get(b));
+            c = baseKeys.get(a).compareTo(baseKeys.get(b));
             if (c != 0) return c;
             c = Integer.compare(levels.get(a), levels.get(b));
             if (c != 0) return c;
@@ -168,20 +231,8 @@ public final class TradePickerScreen extends Screen {
         });
     }
 
-    private static int parseLevel(String token) {
-        switch (token) {
-            case "I": return 1;
-            case "II": return 2;
-            case "III": return 3;
-            case "IV": return 4;
-            case "V": return 5;
-            default:
-                try {
-                    return Integer.parseInt(token);
-                } catch (NumberFormatException e) {
-                    return 0;
-                }
-        }
+    private static <T> String holderId(Holder<T> h) {
+        return h.unwrapKey().map(k -> k.location().toString()).orElse("");
     }
 
     private void rebuildFilter(String query) {
@@ -192,23 +243,43 @@ public final class TradePickerScreen extends Screen {
         }
         String q = query.toLowerCase(Locale.ROOT).trim();
         for (int i : sortedOrder) {
-            if (cardTooltips.get(i).toLowerCase(Locale.ROOT).contains(q)) {
+            if (cardSearch.get(i).contains(q)) {
                 filtered.add(i);
             }
         }
     }
 
     private void rebuildStatusText() {
-        statusText = String.format(Locale.ROOT, "%d / %d selected",
-                selectedIndices.size(), data.picksRequired());
+        statusText = tr("tradeoptimizer.picker.selected", selectedIndices.size(), data.picksRequired());
     }
 
     private void onConfirm() {
-        if (selectedIndices.size() != data.picksRequired()) return;
+        if (submitted || selectedIndices.size() != data.picksRequired()) return;
         List<TradeKey> picks = new ArrayList<>();
         for (int idx : selectedIndices) picks.add(data.available().get(idx).key());
         ClientServices.NETWORK.sendToServer(new PickerSubmitC2S(data.villagerId(), data.level(), picks));
-        onClose();
+
+        // Hold the screen rather than dropping to the world. The server answers with the merchant
+        // or the next level's picker, and that replaces this screen directly.
+        submitted = true;
+        submittedTicks = 0;
+        confirmBtn.active = false;
+        cancelBtn.active = false;
+        statusText = tr("tradeoptimizer.picker.applying");
+    }
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (!submitted) return;
+        // The server can decline a submit (e.g. the book cap) and open nothing at all. Hand the
+        // screen back rather than leaving the player on a dead dialog they can only escape.
+        if (++submittedTicks > SUBMIT_TIMEOUT_TICKS) {
+            submitted = false;
+            confirmBtn.active = selectedIndices.size() == data.picksRequired();
+            cancelBtn.active = true;
+            rebuildStatusText();
+        }
     }
 
     private int visibleRows() {
@@ -258,10 +329,16 @@ public final class TradePickerScreen extends Screen {
         }
 
         if (filtered.isEmpty()) {
-            String msg = "No trades match your search.";
+            String msg = noMatchText;
             g.drawString(this.font, msg, (this.width - this.font.width(msg)) / 2, TOP_PAD + 12, 0xFFAAAAAA);
         } else if (maxScroll() > 0) {
-            String hint = "Scroll for more (page " + (scrollRow + 1) + " / " + (maxScroll() + 1) + ")";
+            int maxScroll = maxScroll();
+            if (scrollRow != hintRow || maxScroll != hintMax) {
+                hintRow = scrollRow;
+                hintMax = maxScroll;
+                hintText = tr("tradeoptimizer.picker.scroll_hint", scrollRow + 1, maxScroll + 1);
+            }
+            String hint = hintText;
             int hintY = this.height - 50 - (hoveredIdx >= 0 ? 12 : 0);
             g.drawString(this.font, hint, (this.width - this.font.width(hint)) / 2, hintY, 0xFF888888);
         }
@@ -305,6 +382,12 @@ public final class TradePickerScreen extends Screen {
         g.renderItemDecorations(this.font, r, afterA, iy);
 
         int rightPad = LABEL_RIGHT_PAD;
+        if (selected) {
+            // Its place in the villager's list: trades are listed in click order (#23).
+            String n = String.valueOf(selectionNumber(idx));
+            g.drawString(this.font, n, x + CARD_WIDTH - 3 - this.font.width(n), y + 2, 0xFFFFFFFF);
+            rightPad += 8;
+        }
         if (owned) {
             // Check mark at the card's right edge: this trade is already on the villager.
             g.drawString(this.font, "✔", x + CARD_WIDTH - 12, y + 9, 0xFF55CC55);
@@ -323,6 +406,11 @@ public final class TradePickerScreen extends Screen {
     }
 
     private String fitText(String text, int maxWidth) {
+        return fitCache.computeIfAbsent(maxWidth, w -> new HashMap<>())
+                .computeIfAbsent(text, t -> fitTextUncached(t, maxWidth));
+    }
+
+    private String fitTextUncached(String text, int maxWidth) {
         if (this.font.width(text) <= maxWidth) return text;
         while (text.length() > 1 && this.font.width(text + ".") > maxWidth) {
             text = text.substring(0, text.length() - 1);
@@ -342,7 +430,33 @@ public final class TradePickerScreen extends Screen {
         if (!enchants.isEmpty()) {
             return gearEnchantLabel(trade.key(), enchants);
         }
+        return variantDisplay(trade.key(), result);
+    }
+
+    /**
+     * Stew and dyed-leather cards (#14): one card per effect or colour, so the card says which.
+     * The colour comes from the card's key, not the item: a mixed dye has no single name.
+     */
+    private static String variantDisplay(TradeKey key, ItemStack stack) {
+        SuspiciousStewEffects stew = stack.get(DataComponents.SUSPICIOUS_STEW_EFFECTS);
+        if (stew != null && stew.effects().size() == 1) {
+            return stew.effects().get(0).effect().value().getDisplayName().getString();
+        }
+        String path = key.id().getPath();
+        if (key.id().getNamespace().equals(TradeOptimizer.MOD_ID) && path.startsWith("dye/")) {
+            String[] parts = path.split("/");
+            if (parts.length > 1) return tr("color.minecraft." + parts[1]);
+        }
         return "";
+    }
+
+    /** Sort key for stew / dye cards: the effect's registry id or the card key, never the localized label. */
+    private static String variantSortKey(TradeKey key, ItemStack stack) {
+        SuspiciousStewEffects stew = stack.get(DataComponents.SUSPICIOUS_STEW_EFFECTS);
+        if (stew != null && stew.effects().size() == 1) {
+            return holderId(stew.effects().get(0).effect());
+        }
+        return key.id().toString();
     }
 
     private static String buildTooltip(AvailableTrade trade) {
@@ -359,16 +473,15 @@ public final class TradePickerScreen extends Screen {
         ItemStack r = o.getResult();
         if (r.is(Items.ENCHANTED_BOOK)) {
             String ench = storedEnchantDisplay(r);
-            sb.append(ench.isEmpty() ? "Enchanted Book" : ench + " Book");
+            sb.append(ench.isEmpty() ? tr("tradeoptimizer.picker.book") : tr("tradeoptimizer.picker.book_of", ench));
         } else if (r.is(Items.TIPPED_ARROW)) {
             sb.append(r.getHoverName().getString());
         } else if (!r.getEnchantments().isEmpty()) {
             sb.append(r.getHoverName().getString()).append(" — ").append(allEnchantsDisplay(r.getEnchantments()));
-            if (OfferFactory.headlineEnchantId(trade.key()).isPresent()) {
-                sb.append("  (you choose the headline; level + bonuses rolled by the game)");
-            }
         } else {
             sb.append(r.getHoverName().getString());
+            String variant = variantDisplay(trade.key(), r);
+            if (!variant.isEmpty()) sb.append(" — ").append(variant); // searchable by effect / colour
         }
         return sb.toString();
     }
@@ -381,19 +494,28 @@ public final class TradePickerScreen extends Screen {
         return enchantName(ench, enchants.getLevel(ench));
     }
 
-    /** Gear card label: lead with the chosen (headline) enchantment, note how many bonuses ride along. */
-    private static String gearEnchantLabel(TradeKey key, ItemEnchantments enchants) {
-        Holder<Enchantment> lead = null;
+    /**
+     * The gear card's lead enchantment: the player's chosen headline (parsed from the key in
+     * HEADLINE mode), else the first one (the only enchantment in SINGLE mode).
+     */
+    private static Holder<Enchantment> gearLead(TradeKey key, ItemEnchantments enchants) {
         Optional<ResourceLocation> headline = OfferFactory.headlineEnchantId(key);
         if (headline.isPresent()) {
             for (Holder<Enchantment> h : enchants.keySet()) {
                 if (h.unwrapKey().map(k -> k.location().equals(headline.get())).orElse(false)) {
-                    lead = h;
-                    break;
+                    return h;
                 }
             }
         }
-        if (lead == null) lead = enchants.keySet().iterator().next();
+        return enchants.keySet().iterator().next();
+    }
+
+    /**
+     * Gear card label: lead with the lead enchantment, and note how many bonus enchantments ride
+     * along so two headline cards with different bonuses still read distinctly.
+     */
+    private static String gearEnchantLabel(TradeKey key, ItemEnchantments enchants) {
+        Holder<Enchantment> lead = gearLead(key, enchants);
         String s = enchantName(lead, enchants.getLevel(lead));
         int more = enchants.size() - 1;
         if (more > 0) s += " +" + more;
@@ -409,47 +531,41 @@ public final class TradePickerScreen extends Screen {
         return String.join(", ", parts);
     }
 
+    /** Tipped-arrow label: the potion's effect name ("Weakness"), or vanilla's arrow name for multi-effect potions. */
     private static String potionDisplay(ItemStack stack) {
         PotionContents pc = stack.get(DataComponents.POTION_CONTENTS);
         if (pc == null) return "";
-        return pc.potion()
-                .flatMap(Holder::unwrapKey)
-                .map(k -> capitalize(k.location().getPath().replace('_', ' ')))
-                .orElse("");
-    }
-
-    private static String enchantName(Holder<Enchantment> ench, int level) {
-        String pathStr = ench.unwrapKey().map(k -> k.location().getPath()).orElse("enchant");
-        String base = capitalize(pathStr.replace('_', ' '));
-        // Match vanilla: single-level enchantments (Mending, Silk Touch, Infinity, ...)
-        // display with no numeral. Multi-level enchantments always show their numeral.
-        if (level == 1 && ench.value().getMaxLevel() == 1) return base;
-        return base + " " + roman(level);
-    }
-
-    private static String capitalize(String s) {
-        if (s.isEmpty()) return s;
-        StringBuilder sb = new StringBuilder(s.length());
-        boolean cap = true;
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (cap && Character.isLetter(c)) { sb.append(Character.toUpperCase(c)); cap = false; }
-            else { sb.append(c); }
-            if (c == ' ') cap = true;
+        if (pc.potion().isPresent()) {
+            List<MobEffectInstance> effects = pc.potion().get().value().getEffects();
+            if (effects.size() == 1) {
+                // Long and Strong variants share the effect's name, so the potency and the arrow's own
+                // duration (an eighth of the potion's) keep their cards apart.
+                MobEffectInstance e = effects.get(0);
+                String name = e.getEffect().value().getDisplayName().getString();
+                if (e.getAmplifier() > 0) name += " " + tr("potion.potency." + e.getAmplifier());
+                if (e.getDuration() > 1) {
+                    int secs = e.getDuration() / 8 / 20;
+                    name += String.format(Locale.ROOT, " (%d:%02d)", secs / 60, secs % 60);
+                }
+                return name;
+            }
         }
-        return sb.toString();
+        return stack.getHoverName().getString();
     }
 
-    private static String roman(int n) {
-        return switch (n) {
-            case 1 -> "I"; case 2 -> "II"; case 3 -> "III"; case 4 -> "IV"; case 5 -> "V";
-            default -> String.valueOf(n);
-        };
+    /** Vanilla's localized name: numeral omitted for single-level enchantments, modded ones just work. */
+    private static String enchantName(Holder<Enchantment> ench, int level) {
+        return Enchantment.getFullname(ench, level).getString();
+    }
+
+    private static String tr(String key, Object... args) {
+        return Component.translatable(key, args).getString();
     }
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button != 0) return super.mouseClicked(mouseX, mouseY, button);
+        if (button != InputConstants.MOUSE_BUTTON_LEFT) return super.mouseClicked(mouseX, mouseY, button);
+        if (submitted) return super.mouseClicked(mouseX, mouseY, button);
 
         int gridStartX = (this.width - (COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP)) / 2;
         int visible = visibleRows();
@@ -474,7 +590,9 @@ public final class TradePickerScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if (scrollY != 0 && maxScroll() > 0) {
+        if (scrollY != 0) {
+            // Always clamp, even when everything fits: a row left over from a smaller window must be
+            // scrollable back, or the view sticks showing only the trailing cards (#18).
             scrollRow = Math.max(0, Math.min(maxScroll(), scrollRow - (int) Math.signum(scrollY)));
             return true;
         }
@@ -494,6 +612,15 @@ public final class TradePickerScreen extends Screen {
         }
         confirmBtn.active = (selectedIndices.size() == data.picksRequired());
         rebuildStatusText();
+    }
+
+    private int selectionNumber(int idx) {
+        int n = 1;
+        for (int i : selectedIndices) {
+            if (i == idx) return n;
+            n++;
+        }
+        return 0;
     }
 
     private boolean isBookCard(int idx) {
@@ -521,18 +648,16 @@ public final class TradePickerScreen extends Screen {
     }
 
     private static String levelName(int level) {
-        return switch (level) {
-            case 1 -> "Novice";
-            case 2 -> "Apprentice";
-            case 3 -> "Journeyman";
-            case 4 -> "Expert";
-            case 5 -> "Master";
-            default -> "Level " + level;
-        };
+        if (level >= 1 && level <= 5) return tr("merchant.level." + level);
+        return tr("tradeoptimizer.picker.level", level);
     }
 
+    /** Vanilla's profession name; a profession with no translation falls back to its raw path. */
     private static String shortProf(String prof) {
         int idx = prof.lastIndexOf(':');
-        return (idx >= 0 ? prof.substring(idx + 1) : prof).toUpperCase(Locale.ROOT);
+        String ns = idx >= 0 ? prof.substring(0, idx) : "minecraft";
+        String path = idx >= 0 ? prof.substring(idx + 1) : prof;
+        String key = "entity." + ns + ".villager." + path;
+        return Language.getInstance().has(key) ? tr(key) : path.toUpperCase(Locale.ROOT);
     }
 }

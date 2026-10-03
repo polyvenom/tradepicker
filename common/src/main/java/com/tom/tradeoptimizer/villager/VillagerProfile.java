@@ -2,6 +2,7 @@ package com.tom.tradeoptimizer.villager;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.trade.TradeKey;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.world.item.trading.MerchantOffer;
@@ -41,16 +42,42 @@ public record VillagerProfile(
         legacy = new HashMap<>(legacy);
     }
 
-    private static final Codec<Integer> INT_STR_CODEC =
-            Codec.STRING.xmap(Integer::parseInt, String::valueOf);
+    /**
+     * Level-keyed map codec. Levels are stored as string keys on disk, so the read side has to
+     * parse them back. Parsing per entry (rather than through a key codec built on
+     * {@code Integer::parseInt}) keeps a single corrupted or hand-edited key from throwing
+     * mid-decode and taking the whole profile — and, through the list decode, every other
+     * profile with it. The bad entry is dropped and logged; the rest of the level map loads.
+     * On-disk shape is unchanged.
+     */
+    private static <V> Codec<Map<Integer, V>> levelMapCodec(Codec<V> valueCodec) {
+        return Codec.unboundedMap(Codec.STRING, valueCodec).xmap(
+                raw -> {
+                    Map<Integer, V> out = new HashMap<>();
+                    for (Map.Entry<String, V> e : raw.entrySet()) {
+                        try {
+                            out.put(Integer.parseInt(e.getKey()), e.getValue());
+                        } catch (NumberFormatException ex) {
+                            TradeOptimizer.LOGGER.warn(
+                                    "Dropping villager-profile entry under malformed level key '{}'", e.getKey());
+                        }
+                    }
+                    return out;
+                },
+                map -> {
+                    Map<String, V> out = new HashMap<>();
+                    for (Map.Entry<Integer, V> e : map.entrySet()) out.put(String.valueOf(e.getKey()), e.getValue());
+                    return out;
+                });
+    }
 
     public static final Codec<VillagerProfile> CODEC = RecordCodecBuilder.create(inst -> inst.group(
             UUIDUtil.CODEC.fieldOf("id").forGetter(VillagerProfile::id),
             Codec.STRING.fieldOf("prof").forGetter(VillagerProfile::profession),
             UUIDUtil.CODEC.optionalFieldOf("owner").forGetter(VillagerProfile::owner),
-            Codec.unboundedMap(INT_STR_CODEC, TradeKey.CODEC.listOf())
+            levelMapCodec(TradeKey.CODEC.listOf())
                     .optionalFieldOf("picks", new HashMap<>()).forGetter(VillagerProfile::picks),
-            Codec.unboundedMap(INT_STR_CODEC, MerchantOffer.CODEC.listOf())
+            levelMapCodec(MerchantOffer.CODEC.listOf())
                     .optionalFieldOf("legacy", new HashMap<>()).forGetter(VillagerProfile::legacy)
     ).apply(inst, VillagerProfile::new));
 
@@ -80,11 +107,6 @@ public record VillagerProfile(
         legacy.put(level, List.copyOf(offers));
     }
 
-    public void clearAll() {
-        picks.clear();
-        legacy.clear();
-    }
-
     public static VillagerProfile fresh(UUID id, String profession) {
         return new VillagerProfile(id, profession, Optional.empty(), new HashMap<>(), new HashMap<>());
     }
@@ -92,6 +114,15 @@ public record VillagerProfile(
     /** Fresh profile that already records its owner. Used the first time a player interacts. */
     public static VillagerProfile fresh(UUID id, String profession, UUID owner) {
         return new VillagerProfile(id, profession, Optional.of(owner), new HashMap<>(), new HashMap<>());
+    }
+
+    /**
+     * Return a copy filed under a new villager UUID. Vanilla's mob conversions (zombify,
+     * cure, lightning) DISCARD the old entity and spawn a new one with a new UUID, so the
+     * profile has to be re-keyed to stay attached to the villager it describes.
+     */
+    public VillagerProfile withId(UUID newId) {
+        return new VillagerProfile(newId, profession, owner, picks, legacy);
     }
 
     /**
