@@ -107,11 +107,6 @@ public record VillagerProfile(
         legacy.put(level, List.copyOf(offers));
     }
 
-    public void clearAll() {
-        picks.clear();
-        legacy.clear();
-    }
-
     public static VillagerProfile fresh(UUID id, String profession) {
         return new VillagerProfile(id, profession, Optional.empty(), new HashMap<>(), new HashMap<>());
     }
