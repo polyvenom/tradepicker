@@ -69,23 +69,20 @@ public final class OfferFactory {
         List<AvailableTrade> out = new ArrayList<>();
         HolderLookup.Provider registries = level.registryAccess();
 
-        Optional<Holder.Reference<TradeSet>> setRef =
-                registries.lookupOrThrow(Registries.TRADE_SET).get(tradeSetKey);
-        if (setRef.isEmpty()) {
+        Optional<TradeSet> setOpt = tradeSet(registries, tradeSetKey);
+        if (setOpt.isEmpty()) {
             TradeOptimizer.LOGGER.warn("No TradeSet registered for key {}", tradeSetKey.identifier());
             return out;
         }
-        TradeSet tradeSet = setRef.get().value();
-        HolderSet<VillagerTrade> trades = tradeSet.getTrades();
+        TradeSet tradeSet = setOpt.get();
 
-        for (Holder<VillagerTrade> holder : trades) {
+        for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
             Optional<ResourceKey<VillagerTrade>> keyOpt = holder.unwrapKey();
             if (keyOpt.isEmpty()) continue;
 
             try {
                 TradeKey flatKey = new TradeKey(keyOpt.get().identifier());
-                LootContext ctx = buildContext(level, villager, tradeSet, costRandom(villager, flatKey));
-                MerchantOffer preview = holder.value().getOffer(ctx);
+                MerchantOffer preview = previewOf(level, villager, tradeSet, holder.value(), flatKey);
                 if (preview == null) continue;
 
                 ItemStack result = preview.getResult();
@@ -123,11 +120,9 @@ public final class OfferFactory {
      * each book template into.
      */
     public static int countBookTemplates(ServerLevel level, Villager villager, ResourceKey<TradeSet> tradeSetKey) {
-        HolderLookup.Provider registries = level.registryAccess();
-        Optional<Holder.Reference<TradeSet>> setRef =
-                registries.lookupOrThrow(Registries.TRADE_SET).get(tradeSetKey);
-        if (setRef.isEmpty()) return 0;
-        TradeSet tradeSet = setRef.get().value();
+        Optional<TradeSet> setOpt = tradeSet(level.registryAccess(), tradeSetKey);
+        if (setOpt.isEmpty()) return 0;
+        TradeSet tradeSet = setOpt.get();
 
         int count = 0;
         for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
@@ -135,8 +130,7 @@ public final class OfferFactory {
             if (keyOpt.isEmpty()) continue;
             try {
                 TradeKey flatKey = new TradeKey(keyOpt.get().identifier());
-                LootContext ctx = buildContext(level, villager, tradeSet, costRandom(villager, flatKey));
-                MerchantOffer preview = holder.value().getOffer(ctx);
+                MerchantOffer preview = previewOf(level, villager, tradeSet, holder.value(), flatKey);
                 if (preview != null && preview.getResult().is(Items.ENCHANTED_BOOK)) count++;
             } catch (Exception e) {
                 // Skip — same templates enumerate() would skip; not a book slot we can offer.
@@ -328,9 +322,9 @@ public final class OfferFactory {
                     if (offer != null) out.add(new AvailableTrade(key, offer));
                 }
             } else {
-                // HEADLINE (also the fallback for the not-yet-shipped COMBO mode): one card per
-                // enchantment. The level + any bonus enchantments are rolled by vanilla, deterministically
-                // per villager, so the preview card shows exactly what the trade will grant.
+                // HEADLINE: one card per enchantment. The level + any bonus enchantments are rolled by
+                // vanilla, deterministically per villager, so the preview card shows exactly what the
+                // trade will grant.
                 TradeKey key = gearHeadlineKey(itemId, enchId);
                 MerchantOffer offer = buildGearOffer(level, villager, tmpl, item, profId,
                         GearEnchantMode.HEADLINE, ench, 1, registries, key, pool);
@@ -387,7 +381,7 @@ public final class OfferFactory {
             result.enchant(ench, singleLevel);
             finalSet.add(new EnchPick(ench, singleLevel));
         } else {
-            ItemStack rolled = rollHeadline(level, result, ench, priceSeed(villager, key), registries, pool);
+            ItemStack rolled = rollHeadline(level, result, ench, priceSeed(villager, key), pool);
             if (rolled == null) return null;
             result = rolled;
             ItemEnchantments ie = result.getEnchantments();
@@ -407,7 +401,7 @@ public final class OfferFactory {
      * headline alone. Deterministic per seed, so the picker preview and the granted offer always match.
      */
     private static ItemStack rollHeadline(ServerLevel level, ItemStack base, Holder<Enchantment> headline,
-                                          long seed, HolderLookup.Provider registries, HolderSet<Enchantment> pool) {
+                                          long seed, HolderSet<Enchantment> pool) {
         Identifier targetId = headline.unwrapKey().map(ResourceKey::identifier).orElse(null);
         if (targetId == null) return null;
         Optional<? extends HolderSet<Enchantment>> poolOpt = Optional.of(pool);
@@ -545,26 +539,18 @@ public final class OfferFactory {
         HolderLookup.Provider registries = level.registryAccess();
         VillagerProfession prof = villager.getVillagerData().profession().value();
 
-        List<Integer> candidateLevels = new ArrayList<>();
-        if (merchantLevel >= 1 && merchantLevel <= MAX_MERCHANT_LEVEL) candidateLevels.add(merchantLevel);
-        for (int lvl = 1; lvl <= MAX_MERCHANT_LEVEL; lvl++) {
-            if (!candidateLevels.contains(lvl)) candidateLevels.add(lvl);
-        }
-
-        for (int lvl : candidateLevels) {
+        for (int lvl : candidateLevels(merchantLevel)) {
             ResourceKey<TradeSet> tradeSetKey = prof.getTrades(lvl);
             if (tradeSetKey == null) continue;
-            Optional<Holder.Reference<TradeSet>> setRef =
-                    registries.lookupOrThrow(Registries.TRADE_SET).get(tradeSetKey);
-            if (setRef.isEmpty()) continue;
-            TradeSet tradeSet = setRef.get().value();
+            Optional<TradeSet> setOpt = tradeSet(registries, tradeSetKey);
+            if (setOpt.isEmpty()) continue;
+            TradeSet tradeSet = setOpt.get();
             for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
                 Optional<ResourceKey<VillagerTrade>> keyOpt = holder.unwrapKey();
                 if (keyOpt.isEmpty()) continue;
                 try {
                     TradeKey fk = new TradeKey(keyOpt.get().identifier());
-                    LootContext ctx = buildContext(level, villager, tradeSet, costRandom(villager, fk));
-                    MerchantOffer preview = holder.value().getOffer(ctx);
+                    MerchantOffer preview = previewOf(level, villager, tradeSet, holder.value(), fk);
                     if (preview != null && match.test(preview)) return GearTemplateInfo.from(preview);
                 } catch (Exception e) {
                     // skip — same templates enumerate() would skip
@@ -715,6 +701,26 @@ public final class OfferFactory {
     /** Villager merchant levels run 1 (Novice) .. 5 (Master). */
     private static final int MAX_MERCHANT_LEVEL = 5;
 
+    /** The pick's own merchant level first (if valid), then every level 1..MAX. */
+    private static List<Integer> candidateLevels(int merchantLevel) {
+        List<Integer> levels = new ArrayList<>();
+        if (merchantLevel >= 1 && merchantLevel <= MAX_MERCHANT_LEVEL) levels.add(merchantLevel);
+        for (int lvl = 1; lvl <= MAX_MERCHANT_LEVEL; lvl++) {
+            if (!levels.contains(lvl)) levels.add(lvl);
+        }
+        return levels;
+    }
+
+    private static Optional<TradeSet> tradeSet(HolderLookup.Provider registries, ResourceKey<TradeSet> key) {
+        return registries.lookupOrThrow(Registries.TRADE_SET).get(key).map(Holder.Reference::value);
+    }
+
+    /** The template's min-cost preview (cost rolled from the flat key's seed), or null if it offers nothing. */
+    private static MerchantOffer previewOf(ServerLevel level, Villager villager, TradeSet tradeSet,
+                                           VillagerTrade template, TradeKey flatKey) {
+        return template.getOffer(buildContext(level, villager, tradeSet, costRandom(villager, flatKey)));
+    }
+
     private static Optional<MerchantOffer> generateBookOffer(ServerLevel level, Villager villager,
                                                              TradeKey synthetic, int merchantLevel) {
         SyntheticBookKey parsed = parseSyntheticBook(synthetic);
@@ -731,19 +737,12 @@ public final class OfferFactory {
         // villager's CURRENT level, so once it hit such a level every previously-picked
         // book silently failed to regenerate and got dropped. Try the pick's own level
         // first, then fall back to scanning every level for a usable book template.
-        List<Integer> candidateLevels = new ArrayList<>();
-        if (merchantLevel >= 1 && merchantLevel <= MAX_MERCHANT_LEVEL) candidateLevels.add(merchantLevel);
-        for (int lvl = 1; lvl <= MAX_MERCHANT_LEVEL; lvl++) {
-            if (!candidateLevels.contains(lvl)) candidateLevels.add(lvl);
-        }
-
-        for (int lvl : candidateLevels) {
+        for (int lvl : candidateLevels(merchantLevel)) {
             ResourceKey<TradeSet> tradeSetKey = prof.getTrades(lvl);
             if (tradeSetKey == null) continue;
-            Optional<Holder.Reference<TradeSet>> setRef =
-                    registries.lookupOrThrow(Registries.TRADE_SET).get(tradeSetKey);
-            if (setRef.isEmpty()) continue;
-            TradeSet tradeSet = setRef.get().value();
+            Optional<TradeSet> setOpt = tradeSet(registries, tradeSetKey);
+            if (setOpt.isEmpty()) continue;
+            TradeSet tradeSet = setOpt.get();
 
             for (Holder<VillagerTrade> holder : tradeSet.getTrades()) {
                 String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
