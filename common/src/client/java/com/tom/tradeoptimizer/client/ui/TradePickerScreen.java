@@ -209,7 +209,7 @@ public final class TradePickerScreen extends Screen {
                 PotionContents pc = result.get(DataComponents.POTION_CONTENTS);
                 if (pc != null) baseKey = pc.potion().map(TradePickerScreen::holderId).orElse("");
             } else if (result.has(DataComponents.SUSPICIOUS_STEW_EFFECTS) || result.has(DataComponents.DYED_COLOR)) {
-                baseKey = variantDisplay(trade.key(), result);
+                baseKey = trade.key().id().toString(); // effect / colour live in the key
             } else if (!result.getEnchantments().isEmpty()) {
                 ItemEnchantments enchants = result.getEnchantments();
                 Holder<Enchantment> lead = gearLead(trade.key(), enchants);

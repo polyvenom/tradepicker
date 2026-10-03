@@ -93,3 +93,10 @@ tasks.configureEach { t ->
 		t.javaExecutable.set(jdk25Launcher.map { it.executablePath.asFile.absolutePath })
 	}
 }
+
+// Ship the licence like the Fabric jar does.
+jar {
+	from(rootProject.file("LICENSE")) {
+		rename { "${it}_tradeoptimizer" }
+	}
+}
