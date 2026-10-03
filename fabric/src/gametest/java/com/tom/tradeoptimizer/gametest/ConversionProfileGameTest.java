@@ -46,7 +46,7 @@ public class ConversionProfileGameTest {
         ServerLevel level = helper.getLevel();
         Villager villager = spawnFarmer(helper);
         UUID originalId = villager.getUUID();
-        ServerPlayer player = MockPlayers.mock(helper);
+        ServerPlayer player = MockPlayers.near(helper);
 
         // Lock in level-1 picks through the real entry point (creates the owned profile).
         List<TradeKey> picks = firstTwoPicks(level, villager, helper);

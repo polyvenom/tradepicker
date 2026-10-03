@@ -12,6 +12,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.server.permissions.LevelBasedPermissionSet;
 import net.minecraft.server.players.ServerOpListEntry;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.UUID;
 
@@ -35,6 +36,19 @@ public final class MockPlayers {
         // the channel to the connection — after that it can "send" packets (into the void).
         new EmbeddedChannel(connection);
         server.getPlayerList().placeNewPlayer(connection, player, CommonListenerCookie.createInitial(profile, false));
+        return player;
+    }
+
+    /**
+     * A mock player standing where a real one would be: beside the test's villager. The harness
+     * builds players at the world spawn, out of reach, and since issue #9 every villager action
+     * checks reach (ProfileController.canAct). Every test spawns its villager at relative (1, 2, 1);
+     * this stands the player one block east of it.
+     */
+    public static ServerPlayer near(GameTestHelper helper) {
+        ServerPlayer player = mock(helper);
+        Vec3 pos = helper.absoluteVec(new Vec3(2.5, 2, 1.5));
+        player.setPos(pos.x, pos.y, pos.z);
         return player;
     }
 

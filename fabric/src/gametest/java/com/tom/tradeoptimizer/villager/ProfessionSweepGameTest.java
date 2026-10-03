@@ -123,7 +123,7 @@ public class ProfessionSweepGameTest {
     @GameTest(structure = "fabric-gametest-api-v1:empty", maxTicks = 400)
     public void everyProfessionLevelsToMasterAndTakesTheCureDiscount(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
-        ServerPlayer player = MockPlayers.mock(helper);
+        ServerPlayer player = MockPlayers.near(helper);
         VillagerProfileState state = VillagerProfileState.get(level);
         List<String> problems = new ArrayList<>();
         int offersChecked = 0;
@@ -182,8 +182,7 @@ public class ProfessionSweepGameTest {
                 villager.getGossips().add(player.getUUID(), GossipType.MAJOR_POSITIVE, 20);
                 villager.getGossips().add(player.getUUID(), GossipType.MINOR_POSITIVE, 25);
                 int reputation = villager.getPlayerReputation(player);
-                ProfileController.onPickerSubmit(player, villager.getUUID(), MAX_LEVEL,
-                        profile.picksFor(MAX_LEVEL));
+                MerchantAccess.open(player, villager);
 
                 for (MerchantOffer offer : villager.getOffers()) {
                     offersChecked++;
