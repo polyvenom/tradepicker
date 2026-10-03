@@ -297,6 +297,8 @@ public final class ProfileController {
         if (!canAct(player, villager)) {
             TradeOptimizer.LOGGER.warn("[submit] rejected: {} can't act on villager {} (dead, out of reach, or busy)",
                     player.getName().getString(), villagerId);
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: couldn't apply your picks (too far away, or the villager is busy). Right-click it again."));
             return;
         }
         VillagerProfession prof = villager.getVillagerData().profession().value();
@@ -312,6 +314,18 @@ public final class ProfileController {
             player.sendSystemMessage(Component.literal(
                     "Trade Picker: this villager belongs to another player."));
             return;
+        }
+        // No profile means the player never right-clicked this villager, so the picker was never
+        // opened for it. Only a truly fresh villager may be claimed straight from a submit: any
+        // other one has trades that onInteract would import as legacy, and a crafted packet would
+        // overwrite them.
+        if (profile == null) {
+            MerchantOffers existing = villager.getOffers();
+            boolean trulyFresh = villager.getVillagerData().level() == 1 && villager.getVillagerXp() == 0;
+            if (existing != null && !existing.isEmpty() && !trulyFresh) {
+                TradeOptimizer.LOGGER.warn("[submit] rejected: villager {} was never opened in the picker", villagerId);
+                return;
+            }
         }
         // A level is picked once. Re-picking goes through Reset, which starts the villager over.
         if (profile != null && profile.isFilled(level)) {
@@ -377,6 +391,15 @@ public final class ProfileController {
                     validatedPicks.size(), picksRequired, profName, level);
             validatedPicks = new ArrayList<>(validatedPicks.subList(0, picksRequired));
         }
+        // And no fewer: a level is locked once picked, so an under-filled submit would leave it a
+        // trade short for good. The client only confirms a full selection.
+        if (validatedPicks.size() < Math.min(picksRequired, available.size())) {
+            TradeOptimizer.LOGGER.warn("[submit] rejected: {} picks, {} required for {} level {}",
+                    validatedPicks.size(), picksRequired, profName, level);
+            player.sendSystemMessage(Component.literal(
+                    "Trade Picker: those trades aren't valid for this villager."));
+            return;
+        }
 
         // 3) Enforce the per-level book cap (vanillaBookLimits). The client greys out excess book
         //    selections, but a tampered client could submit more — reject here. Uses the same
@@ -401,8 +424,7 @@ public final class ProfileController {
         }
 
         if (profile == null) {
-            // Shouldn't normally happen — picker only opens after onInteract creates a
-            // profile. Belt-and-braces: claim ownership now.
+            // A truly fresh villager (checked above): claim ownership now.
             profile = VillagerProfile.fresh(villagerId, profName, player.getUUID());
         } else if (profile.owner().isEmpty()) {
             profile = profile.withOwner(player.getUUID());

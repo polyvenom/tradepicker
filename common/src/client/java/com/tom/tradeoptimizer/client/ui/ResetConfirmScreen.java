@@ -55,6 +55,12 @@ public final class ResetConfirmScreen extends Screen {
         g.drawString(this.font, l3, this.width / 2 - this.font.width(l3) / 2, this.height / 2 - 6, 0xFFAAAAAA);
     }
 
+    /** Esc behaves like Cancel: back to the trade screen, whose own close ends the trade session. */
+    @Override
+    public void onClose() {
+        minecraft.setScreen(back);
+    }
+
     @Override
     public boolean isPauseScreen() {
         return false;

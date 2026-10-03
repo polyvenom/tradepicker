@@ -97,7 +97,7 @@ public class ActionGateGameTest {
         helper.succeed();
     }
 
-    /** The same trade twice in one submit is stored once. */
+    /** The same trade twice in one submit is a crafted packet: nothing is stored. */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void duplicatePicksAreDropped(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
@@ -105,9 +105,47 @@ public class ActionGateGameTest {
         ServerPlayer owner = MockPlayers.near(helper);
         List<TradeKey> one = picks(level, villager, 0, 0);
         ProfileController.onPickerSubmit(owner, villager.getUUID(), 1, one);
-        List<TradeKey> stored = VillagerProfileState.get(level).get(villager.getUUID()).picksFor(1);
-        helper.assertTrue(stored.size() == 1 && stored.get(0).equals(one.get(0)),
-                Component.literal("a duplicated pick must be stored once (got " + stored + ")"));
+        // Deduplicated, [A, A] is one pick for a two-pick level: refused outright rather than
+        // stored once, which would lock the level a trade short.
+        VillagerProfile profile = VillagerProfileState.get(level).get(villager.getUUID());
+        helper.assertTrue(profile == null || profile.picksFor(1).isEmpty(),
+                Component.literal("a duplicated pick must not be stored (got "
+                        + (profile == null ? "no profile" : profile.picksFor(1)) + ")"));
+        helper.succeed();
+    }
+
+    /**
+     * A villager nobody has right-clicked has trades the mod would import as legacy. A crafted
+     * submit must not claim it and overwrite them.
+     */
+    @GameTest(structure = "fabric-gametest-api-v1:empty")
+    public void unclaimedTradedVillagerRefusesSubmit(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper);
+        List<TradeKey> picks = picks(level, villager, 0, 1);
+        int offersBefore = villager.getOffers().size();
+        helper.assertTrue(offersBefore > 0, Component.literal("precondition: vanilla rolled starter trades"));
+        villager.setVillagerXp(5); // traded with before: not truly fresh
+
+        ProfileController.onPickerSubmit(MockPlayers.near(helper), villager.getUUID(), 1, picks);
+        helper.assertTrue(VillagerProfileState.get(level).get(villager.getUUID()) == null,
+                Component.literal("a submit for a never-opened, already-traded villager must not claim it"));
+        helper.assertTrue(villager.getOffers().size() == offersBefore,
+                Component.literal("its existing trades must be left alone"));
+        helper.succeed();
+    }
+
+    /** One card for a two-pick level would lock that level a trade short for good. */
+    @GameTest(structure = "fabric-gametest-api-v1:empty")
+    public void underFilledSubmitIsRefused(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        Villager villager = spawnFarmer(helper);
+        List<TradeKey> one = List.of(picks(level, villager, 0, 1).get(0));
+
+        ProfileController.onPickerSubmit(MockPlayers.near(helper), villager.getUUID(), 1, one);
+        VillagerProfile profile = VillagerProfileState.get(level).get(villager.getUUID());
+        helper.assertTrue(profile == null || profile.picksFor(1).isEmpty(),
+                Component.literal("an under-filled submit must not store picks"));
         helper.succeed();
     }
 
