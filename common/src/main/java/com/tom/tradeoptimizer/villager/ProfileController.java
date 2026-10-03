@@ -17,7 +17,10 @@ import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.npc.villager.VillagerData;
 import net.minecraft.world.entity.npc.villager.VillagerProfession;
 import net.minecraft.world.entity.npc.villager.VillagerTrades;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.item.trading.MerchantOffer;
 import net.minecraft.world.item.trading.MerchantOffers;
 
@@ -85,6 +88,15 @@ public final class ProfileController {
         VillagerProfession prof = data.profession().value();
         String profName = BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(prof)
                 .map(k -> k.identifier().toString()).orElse("minecraft:none");
+
+        // Step aside only for the item interactions vanilla resolves BEFORE trading — a
+        // named name tag or a matching spawn egg. Anything else stays with us: a blanket
+        // pass-through (e.g. on sneak) drops the player into vanilla's own trade window,
+        // which must never be reachable or the picker's trades and vanilla's rolls end up
+        // competing for the same villager.
+        if (isVanillaItemInteraction(player.getMainHandItem(), villager)) {
+            return true; // PASS to vanilla
+        }
 
         // Nitwits and unemployed villagers can't trade — bail.
         // 1.21.5: VillagerProfession.NITWIT/NONE are ResourceKey constants; compare via registry key.
@@ -490,6 +502,27 @@ public final class ProfileController {
             profile.setLegacy(lvl, bucket);
             idx += count;
         }
+    }
+
+    /**
+     * Mirrors {@code Mob.checkAndHandleImportantInteractions}: the only two item interactions
+     * vanilla settles on a mob before trading is ever considered.
+     *
+     * Both are narrower than "is this a name tag / a spawn egg", and deliberately so. An unnamed
+     * name tag does nothing in vanilla, and a spawn egg for a different mob does nothing either —
+     * in both cases vanilla falls through to the trade screen, so if we passed those along the
+     * player would land in the vanilla merchant UI instead of the picker. Matching vanilla's
+     * exact conditions keeps that window unreachable.
+     *
+     * Package-private so VanillaInteractionGateGameTest can exercise it directly — onInteract
+     * itself is gated behind ServerPlayNetworking.canSend, which a mock player can't satisfy.
+     */
+    static boolean isVanillaItemInteraction(ItemStack stack, Villager villager) {
+        if (stack.is(Items.NAME_TAG)) {
+            return stack.has(DataComponents.CUSTOM_NAME);
+        }
+        // 1.21.11: spawnsEntity is an instance method on SpawnEggItem (static on 26.x).
+        return stack.getItem() instanceof SpawnEggItem egg && egg.spawnsEntity(stack, villager.getType());
     }
 
     /** Vanilla generates at most this many trades per merchant level. */

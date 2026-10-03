@@ -17,7 +17,8 @@
       "com.tom.tradeoptimizer.trade.BookKeyFormatGameTest",
       "com.tom.tradeoptimizer.gametest.GearTradeGameTest",
       "com.tom.tradeoptimizer.gametest.ReputationPricingGameTest",
-      "com.tom.tradeoptimizer.gametest.ConversionProfileGameTest"
+      "com.tom.tradeoptimizer.gametest.ConversionProfileGameTest",
+      "com.tom.tradeoptimizer.villager.VanillaInteractionGateGameTest"
     ]
   },
   "depends": {
