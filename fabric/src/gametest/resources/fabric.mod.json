@@ -18,7 +18,9 @@
       "com.tom.tradeoptimizer.gametest.GearTradeGameTest",
       "com.tom.tradeoptimizer.gametest.ReputationPricingGameTest",
       "com.tom.tradeoptimizer.gametest.ConversionProfileGameTest",
-      "com.tom.tradeoptimizer.villager.VanillaInteractionGateGameTest"
+      "com.tom.tradeoptimizer.villager.VanillaInteractionGateGameTest",
+      "com.tom.tradeoptimizer.villager.LevelCatchUpGameTest",
+      "com.tom.tradeoptimizer.villager.LevelUpHoldGameTest"
     ]
   },
   "depends": {
