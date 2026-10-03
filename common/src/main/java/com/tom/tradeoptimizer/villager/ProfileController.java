@@ -9,6 +9,7 @@ import com.tom.tradeoptimizer.platform.Services;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
 import com.tom.tradeoptimizer.trade.OfferFactory;
 import com.tom.tradeoptimizer.trade.TradeKey;
+import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -84,6 +85,26 @@ public final class ProfileController {
     }
 
     /**
+     * Clicks the mod hands straight to vanilla, so vanilla does exactly what it always does with
+     * them (issue #10):
+     *  - the two item interactions vanilla settles before trading (a named name tag, a matching
+     *    spawn egg). Anything else stays with us: a blanket pass-through (e.g. on sneak) would drop
+     *    the player into vanilla's own trade window, whose random rolls would then compete with the
+     *    picker's trades on the same villager;
+     *  - villagers that can't trade at all (nitwits, the unemployed);
+     *  - the clicks vanilla refuses: a baby (it shakes its head), a sleeping villager, one that's
+     *    dying or busy trading with someone else (canAct).
+     *
+     * Package-private for VanillaInteractionGateGameTest: onInteract itself needs a modded client.
+     */
+    static boolean leaveToVanilla(ServerPlayer player, Villager villager) {
+        if (isVanillaItemInteraction(player.getMainHandItem(), villager)) return true;
+        Holder<VillagerProfession> prof = villager.getVillagerData().profession();
+        if (prof.is(VillagerProfession.NITWIT) || prof.is(VillagerProfession.NONE)) return true;
+        return villager.isBaby() || villager.isSleeping() || !canAct(player, villager);
+    }
+
+    /**
      * May this player write picks for this villager? Its owner, or an op. An unowned villager
      * (no profile yet, or a grandfathered one) belongs to whoever claims it first.
      */
@@ -118,28 +139,8 @@ public final class ProfileController {
         String profName = BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(prof)
                 .map(k -> k.identifier().toString()).orElse("minecraft:none");
 
-        // Step aside only for the item interactions vanilla resolves BEFORE trading — a
-        // named name tag or a matching spawn egg. Anything else stays with us: a blanket
-        // pass-through (e.g. on sneak) drops the player into vanilla's own trade window,
-        // which must never be reachable or the picker's trades and vanilla's rolls end up
-        // competing for the same villager.
-        if (isVanillaItemInteraction(player.getMainHandItem(), villager)) {
+        if (leaveToVanilla(player, villager)) {
             return true; // PASS to vanilla
-        }
-
-        // Nitwits and unemployed villagers can't trade — bail.
-        // 1.21.5: VillagerProfession.NITWIT/NONE are ResourceKey constants; compare via registry key.
-        boolean isNitwit = BuiltInRegistries.VILLAGER_PROFESSION.getResourceKey(prof)
-                .map(k -> k.equals(VillagerProfession.NITWIT) || k.equals(VillagerProfession.NONE))
-                .orElse(false);
-        if (isNitwit) {
-            return true;
-        }
-
-        // Dying, or busy trading with someone else: hand the click to vanilla, which refuses it
-        // the same way it always has.
-        if (!canAct(player, villager)) {
-            return true;
         }
 
         // Add-on takeover hook (e.g. Trade Picker: Mastery). If an add-on claims this villager it
