@@ -2,6 +2,7 @@ package com.tom.tradeoptimizer.villager;
 
 import com.tom.tradeoptimizer.TradeOptimizer;
 import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
+import com.tom.tradeoptimizer.mixin.VillagerInvoker;
 import com.tom.tradeoptimizer.network.OpenPickerS2C;
 import com.tom.tradeoptimizer.platform.Services;
 import com.tom.tradeoptimizer.trade.AvailableTrade;
@@ -1079,6 +1080,6 @@ public final class ProfileController {
         for (MerchantOffer offer : offers) {
             offer.resetSpecialPriceDiff();
         }
-        Services.PLATFORM.updateVillagerSpecialPrices(villager, player);
+        ((VillagerInvoker) villager).tradeoptimizer$updateSpecialPrices(player);
     }
 }
