@@ -17,6 +17,15 @@ neoForge {
 	neoFormVersion = project.neoform_version
 }
 
+// The shared mixins need the Mixin annotations to compile here. Compile-only: each loader
+// supplies its own Mixin runtime.
+repositories {
+	maven { url = "https://maven.fabricmc.net/" }
+}
+dependencies {
+	compileOnly "net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7"
+}
+
 // Client-side shared code (UI, client networking seam) lives under src/client/java. NeoForm
 // provides the full client Minecraft, so :common compiles it in one pass. The loader modules
 // map this directory to their own client source set (Fabric) or single set (NeoForge).

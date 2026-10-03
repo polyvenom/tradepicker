@@ -16,8 +16,9 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 /**
  * NeoForge networking: payload registration (mod bus) plus the server-send seam.
  *
- * OpenPickerS2C fits NeoForge's default 1 MiB client-bound cap, so no special large-payload
- * path is needed (unlike Fabric's registerLarge). Payloads are registered optional() so a
+ * No large-payload registration (Fabric's registerLarge 2 MiB): NeoForge's GenericPacketSplitter
+ * splits any oversized packet between two NeoForge peers on its own, and a realistic OpenPickerS2C
+ * is a few hundred KB anyway. Payloads are registered optional() so a
  * client without the mod can still connect (matching the Fabric server-side behaviour); the
  * canSendOpenPicker gate then suppresses the picker for those clients.
  *

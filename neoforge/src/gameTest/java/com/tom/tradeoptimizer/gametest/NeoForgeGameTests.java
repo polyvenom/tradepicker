@@ -1,66 +1,32 @@
 package com.tom.tradeoptimizer.gametest;
 
-import com.tom.tradeoptimizer.config.TradeOptimizerConfig;
-import com.tom.tradeoptimizer.config.TradeOptimizerConfig.GearEnchantMode;
-import com.tom.tradeoptimizer.trade.AvailableTrade;
-import com.tom.tradeoptimizer.trade.NeoForgeBookKeyTest;
-import com.tom.tradeoptimizer.trade.OfferFactory;
-import com.tom.tradeoptimizer.trade.TradeKey;
-import com.tom.tradeoptimizer.villager.NeoForgeLegacyBucketingTest;
-import com.tom.tradeoptimizer.villager.ProfileController;
-import com.tom.tradeoptimizer.villager.VillagerProfile;
-import com.tom.tradeoptimizer.villager.VillagerProfileState;
-import net.minecraft.core.BlockPos;
+import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.gametest.framework.FunctionGameTestInstance;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.gametest.framework.TestData;
 import net.minecraft.gametest.framework.TestEnvironmentDefinition;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.Tag;
 import net.minecraft.resources.Identifier;
-import net.minecraft.resources.RegistryOps;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.permissions.LevelBasedPermissionSet;
-import net.minecraft.server.permissions.Permission;
-import net.minecraft.server.permissions.PermissionLevel;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.npc.villager.Villager;
-import net.minecraft.world.item.enchantment.Enchantment;
-import net.minecraft.world.entity.npc.villager.VillagerProfession;
-import net.minecraft.world.entity.npc.villager.VillagerType;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.item.trading.ItemCost;
-import net.minecraft.world.item.trading.MerchantOffer;
-import net.minecraft.world.item.trading.MerchantOffers;
-import net.minecraft.world.item.trading.TradeSet;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterGameTestsEvent;
 import net.neoforged.neoforge.registries.RegisterEvent;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.Locale;
 import java.util.function.Consumer;
 
 /**
- * NeoForge port of the Fabric game-test safety net. NeoForge 26.1.2 uses the data-driven
- * framework, so each test body is a {@code Consumer<GameTestHelper>} registered into the
- * TEST_FUNCTION registry (RegisterEvent) and wrapped in a FunctionGameTestInstance
- * (RegisterGameTestsEvent) using the built-in empty environment and the {@code minecraft:empty}
- * structure. The bodies are the same vanilla GameTestHelper logic as the Fabric tests.
- *
- * The two package-private tests (legacy bucketing, book-key format) live in the matching
- * com.tom.tradeoptimizer.villager / .trade packages so they can reach package-private members;
- * they're registered here.
+ * Adapter that runs the Fabric game-test classes (shared via the gameTest source set) on NeoForge.
+ * NeoForge 26.x uses the data-driven framework, so each {@code @GameTest} method becomes a
+ * {@code Consumer<GameTestHelper>} in the TEST_FUNCTION registry (RegisterEvent) wrapped in a
+ * FunctionGameTestInstance (RegisterGameTestsEvent) with the built-in empty structure.
+ * The class list mirrors fabric/src/gametest/resources/fabric.mod.json.
  */
 @EventBusSubscriber(modid = "tradeoptimizer")
 public final class NeoForgeGameTests {
@@ -70,6 +36,70 @@ public final class NeoForgeGameTests {
     private static final Identifier ENV_ID = Identifier.fromNamespaceAndPath(NS, "default");
     private static final Identifier EMPTY_STRUCTURE = Identifier.withDefaultNamespace("empty");
 
+    // Keep in sync with "fabric-gametest" in fabric/src/gametest/resources/fabric.mod.json.
+    private static final List<String> TEST_CLASSES = List.of(
+            "com.tom.tradeoptimizer.gametest.OfferFactoryGameTest",
+            "com.tom.tradeoptimizer.gametest.RestockExploitGameTest",
+            "com.tom.tradeoptimizer.gametest.OwnershipGateGameTest",
+            "com.tom.tradeoptimizer.gametest.VillagerProfileCodecGameTest",
+            "com.tom.tradeoptimizer.gametest.PriceSeedGameTest",
+            "com.tom.tradeoptimizer.villager.LegacyBucketingGameTest",
+            "com.tom.tradeoptimizer.villager.ProfilePersistenceGameTest",
+            "com.tom.tradeoptimizer.trade.BookKeyFormatGameTest",
+            "com.tom.tradeoptimizer.gametest.GearTradeGameTest",
+            "com.tom.tradeoptimizer.gametest.ReputationPricingGameTest",
+            "com.tom.tradeoptimizer.gametest.ConversionProfileGameTest",
+            "com.tom.tradeoptimizer.villager.VanillaInteractionGateGameTest",
+            "com.tom.tradeoptimizer.villager.LevelCatchUpGameTest",
+            "com.tom.tradeoptimizer.villager.LevelUpHoldGameTest",
+            "com.tom.tradeoptimizer.villager.ProfessionSweepGameTest",
+            "com.tom.tradeoptimizer.villager.TickedLevelUpGameTest",
+            "com.tom.tradeoptimizer.villager.ActionGateGameTest",
+            "com.tom.tradeoptimizer.villager.PoolCacheGameTest",
+            "com.tom.tradeoptimizer.gametest.BookPricingGameTest",
+            "com.tom.tradeoptimizer.gametest.TradeOrderGameTest",
+            "com.tom.tradeoptimizer.gametest.VariantTradeGameTest");
+
+    private record Case(String name, int maxTicks, Consumer<GameTestHelper> body) {}
+
+    private static List<Case> discover() {
+        List<Case> cases = new ArrayList<>();
+        for (String className : TEST_CLASSES) {
+            Class<?> cls;
+            Object instance;
+            try {
+                cls = Class.forName(className);
+                var ctor = cls.getDeclaredConstructor();
+                ctor.setAccessible(true);
+                instance = ctor.newInstance();
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("Cannot load game test class " + className, e);
+            }
+            for (Method m : cls.getDeclaredMethods()) {
+                GameTest ann = m.getAnnotation(GameTest.class);
+                if (ann == null) continue;
+                m.setAccessible(true);
+                String name = (cls.getSimpleName() + "." + m.getName()).toLowerCase(Locale.ROOT);
+                final Object target = instance;
+                cases.add(new Case(name, ann.maxTicks(), helper -> invoke(m, target, helper)));
+            }
+        }
+        return cases;
+    }
+
+    private static void invoke(Method m, Object target, GameTestHelper helper) {
+        try {
+            m.invoke(target, helper);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            if (cause instanceof Error err) throw err;
+            throw new IllegalStateException(cause);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     private static ResourceKey<Consumer<GameTestHelper>> fnKey(String name) {
         return ResourceKey.create(Registries.TEST_FUNCTION, Identifier.fromNamespaceAndPath(NS, name));
     }
@@ -77,21 +107,9 @@ public final class NeoForgeGameTests {
     @SubscribeEvent
     static void registerFunctions(RegisterEvent event) {
         event.register(Registries.TEST_FUNCTION, helper -> {
-            helper.register(fnKey("farmer_enumerates"), (Consumer<GameTestHelper>) NeoForgeGameTests::farmerLevelOneEnumeratesTrades);
-            helper.register(fnKey("restock_levelup"), (Consumer<GameTestHelper>) NeoForgeGameTests::levelUpDoesNotRestockLowerLevelTrades);
-            helper.register(fnKey("restock_normal"), (Consumer<GameTestHelper>) NeoForgeGameTests::normalRestockStillRefillsCarriedOverTrades);
-            helper.register(fnKey("owner_pick_reset"), (Consumer<GameTestHelper>) NeoForgeGameTests::ownerCanPickThenReset);
-            helper.register(fnKey("non_owner_rejected"), (Consumer<GameTestHelper>) NeoForgeGameTests::nonOwnerIsRejected);
-            helper.register(fnKey("op_bypasses"), (Consumer<GameTestHelper>) NeoForgeGameTests::opBypassesGates);
-            helper.register(fnKey("reset_closes_session"), (Consumer<GameTestHelper>) NeoForgeGameTests::resetClosesStaleTradeSession);
-            helper.register(fnKey("book_limit_nonbook"), (Consumer<GameTestHelper>) NeoForgeGameTests::vanillaBookLimitsDoesNotBlockNonBookPicks);
-            helper.register(fnKey("codec_roundtrip"), (Consumer<GameTestHelper>) NeoForgeGameTests::roundTripsThroughCodec);
-            helper.register(fnKey("price_seed"), (Consumer<GameTestHelper>) NeoForgeGameTests::seededPriceIsStableAndMatchesPreview);
-            helper.register(fnKey("gear_headline"), (Consumer<GameTestHelper>) NeoForgeGameTests::weaponsmithGearHeadlineRoundTrips);
-            helper.register(fnKey("gear_single"), (Consumer<GameTestHelper>) NeoForgeGameTests::weaponsmithGearSingleRoundTrips);
-            helper.register(fnKey("arrow_roundtrip"), (Consumer<GameTestHelper>) NeoForgeGameTests::fletcherArrowRoundTrips);
-            helper.register(fnKey("legacy_bucketing"), (Consumer<GameTestHelper>) NeoForgeLegacyBucketingTest::bucketsLegacyOffersPerLevel);
-            helper.register(fnKey("book_key_format"), (Consumer<GameTestHelper>) NeoForgeBookKeyTest::bookKeyRoundTripsInNewLowercaseFormat);
+            for (Case c : discover()) {
+                helper.register(fnKey(c.name()), c.body());
+            }
         });
     }
 
@@ -99,19 +117,6 @@ public final class NeoForgeGameTests {
     static void registerTests(RegisterGameTestsEvent event) {
         Holder<TestEnvironmentDefinition<?>> env =
                 event.registerEnvironment(ENV_ID, new TestEnvironmentDefinition.AllOf(List.of()));
-        for (String name : List.of(
-                "farmer_enumerates", "restock_levelup", "restock_normal",
-                "owner_pick_reset", "non_owner_rejected", "op_bypasses", "reset_closes_session",
-                "book_limit_nonbook",
-                "codec_roundtrip", "price_seed", "legacy_bucketing", "book_key_format",
-                "gear_headline", "gear_single", "arrow_roundtrip")) {
-            event.registerTest(Identifier.fromNamespaceAndPath(NS, name),
-                    new FunctionGameTestInstance(fnKey(name),
-                            new TestData<>(env, EMPTY_STRUCTURE, 200, 0, true)));
-        }
-    }
-
-    // ============================ shared helpers ============================
 
     private static Villager spawnFarmer(GameTestHelper helper, int villagerLevel) {
         ServerLevel level = helper.getLevel();
@@ -534,5 +539,13 @@ public final class NeoForgeGameTests {
             cfg.setVanillaPricing(originalMode);
         }
         helper.succeed();
+=======
+        List<Case> cases = discover();
+        for (Case c : cases) {
+            event.registerTest(Identifier.fromNamespaceAndPath(NS, c.name()),
+                    new FunctionGameTestInstance(fnKey(c.name()),
+                            new TestData<>(env, EMPTY_STRUCTURE, c.maxTicks(), 0, true)));
+        }
+        System.out.println("[TradePicker] registered " + cases.size() + " NeoForge game tests");
     }
 }

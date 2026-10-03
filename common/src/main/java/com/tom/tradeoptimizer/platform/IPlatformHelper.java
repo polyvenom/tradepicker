@@ -1,8 +1,5 @@
 package com.tom.tradeoptimizer.platform;
 
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.npc.villager.Villager;
-
 import java.nio.file.Path;
 
 /**
@@ -17,12 +14,4 @@ public interface IPlatformHelper {
 
     /** Whether another mod is present. Fabric: FabricLoader.isModLoaded; NeoForge: ModList. */
     boolean isModLoaded(String modId);
-
-    /**
-     * Re-apply reputation / Hero-of-the-Village discounts by invoking vanilla's private
-     * {@code Villager.updateSpecialPrices(player)}. Fabric does this through an @Invoker mixin;
-     * NeoForge through an access transformer. Kept behind the seam so the shared code carries
-     * no mixin dependency.
-     */
-    void updateVillagerSpecialPrices(Villager villager, ServerPlayer player);
 }
