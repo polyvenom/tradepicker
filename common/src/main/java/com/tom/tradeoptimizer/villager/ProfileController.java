@@ -159,11 +159,13 @@ public final class ProfileController {
         VillagerProfileState state = VillagerProfileState.get(level);
         VillagerProfile profile = state.get(villager.getUUID());
 
-        TradeOptimizer.LOGGER.debug("[interact] villager={} prof={} mlevel={} offers={} profile={} thread={}",
-                villager.getUUID(), profName, merchantLevel,
-                villager.getOffers() == null ? "null" : villager.getOffers().size(),
-                profile == null ? "null" : ("picks=" + profile.picks().keySet() + " legacy=" + profile.legacy().keySet()),
-                Thread.currentThread().getName());
+        if (TradeOptimizer.LOGGER.isDebugEnabled()) { // the arguments build strings on every click (#20)
+            TradeOptimizer.LOGGER.debug("[interact] villager={} prof={} mlevel={} offers={} profile={} thread={}",
+                    villager.getUUID(), profName, merchantLevel,
+                    villager.getOffers() == null ? "null" : villager.getOffers().size(),
+                    profile == null ? "null" : ("picks=" + profile.picks().keySet() + " legacy=" + profile.legacy().keySet()),
+                    Thread.currentThread().getName());
+        }
 
         // Case 2: no profile yet. Two sub-cases.
         //   2a — TRULY FRESH villager: level 1 and zero XP means vanilla rolled the
@@ -332,7 +334,7 @@ public final class ProfileController {
         }
         List<AvailableTrade> available;
         try {
-            available = OfferFactory.enumerate(sl, villager, tradeSetKey);
+            available = enumeratePool(sl, villager, tradeSetKey);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("[submit] enumeration failed for {} level {}", profName, level, e);
             return;
@@ -640,6 +642,41 @@ public final class ProfileController {
     /** Two runs of the same click land in the same tick, or within one of it under load. */
     private static final long DUPLICATE_CLICK_TICKS = 2;
 
+    /**
+     * The last trade pool enumerated for each villager, reused by the second run of a click and by
+     * the submit's validation (#20). Enumerating is the expensive step (headline gear re-rolls
+     * vanilla's enchanting up to 256 times per enchantment) and its result depends only on the
+     * villager, the trade set and the config, so one click and its submit used to compute the same
+     * list three times. Validating against the very list the picker was built from is also the
+     * stricter check.
+     */
+    private record PoolEntry(ResourceKey<TradeSet> tradeSet, HolderLookup.Provider registries,
+                             int configRevision, long gameTime, List<AvailableTrade> pool) {}
+
+    private static final Map<UUID, PoolEntry> poolCache = new HashMap<>();
+
+    /** Ten minutes: long enough for a player to read the picker, short enough to bound the map. */
+    private static final long POOL_CACHE_TICKS = 12_000;
+
+    /** {@link OfferFactory#enumerate}, cached per villager. The list is unmodifiable: it's shared. */
+    static List<AvailableTrade> enumeratePool(ServerLevel level, Villager villager, ResourceKey<TradeSet> tradeSetKey) {
+        long now = level.getGameTime();
+        HolderLookup.Provider registries = level.registryAccess();
+        int revision = TradeOptimizerConfig.revision();
+        PoolEntry hit = poolCache.get(villager.getUUID());
+        if (hit != null && hit.tradeSet().equals(tradeSetKey) && hit.registries() == registries
+                && hit.configRevision() == revision && now >= hit.gameTime()
+                && now - hit.gameTime() <= POOL_CACHE_TICKS) {
+            return hit.pool();
+        }
+        List<AvailableTrade> pool = List.copyOf(OfferFactory.enumerate(level, villager, tradeSetKey));
+        // Drop expired entries and any left over from another world.
+        poolCache.values().removeIf(e -> e.registries() != registries
+                || now < e.gameTime() || now - e.gameTime() > POOL_CACHE_TICKS);
+        poolCache.put(villager.getUUID(), new PoolEntry(tradeSetKey, registries, revision, now, pool));
+        return pool;
+    }
+
     /** Vanilla generates at most this many trades per merchant level. */
     private static final int MAX_TRADES_PER_LEVEL = 2;
 
@@ -822,7 +859,7 @@ public final class ProfileController {
 
         List<AvailableTrade> available;
         try {
-            available = OfferFactory.enumerate(level, villager, tradeSetKey);
+            available = enumeratePool(level, villager, tradeSetKey);
         } catch (Exception e) {
             TradeOptimizer.LOGGER.error("Trade enumeration failed for {} level {}",
                     profile.profession(), merchantLevel, e);
