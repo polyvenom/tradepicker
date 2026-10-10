@@ -5,7 +5,7 @@ import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 
 /**
  * A RandomSource that returns a pre-set sequence of integers for its first N
- * {@code nextInt(bound)} calls, then defers to a cost source after that.
+ * {@code nextInt(bound)} calls, then defers to a cost source.
  *
  * Used to steer vanilla's enchant_randomly:
  *   - position 0 = the template's random pick from its own enchantment list → the enchantment
@@ -14,16 +14,11 @@ import net.minecraft.world.level.levelgen.PositionalRandomFactory;
  *     this slot out (OfferFactory.bookSource)
  *   - after the prefix = cost variance
  *
- * The steered prefix is always honored so the targeted enchantment + level is exact. What
- * happens to the cost rolls after the prefix depends on {@code costFallback}:
- *   - null (default) → every later roll returns its minimum (0), i.e. vanilla's cheapest price.
- *   - non-null → later rolls delegate to that source, i.e. vanilla's randomized price range.
+ * After the prefix, rolls return 0 (vanilla's cheapest price) when {@code costFallback} is null,
+ * else delegate to it (randomized pricing). Only rolls after the prefix is fully consumed are
+ * delegated, so pricing can never disturb the enchantment/level selection.
  *
- * Only rolls taken AFTER the steered prefix is fully consumed are delegated, so randomized
- * pricing can never disturb the enchantment/level selection.
- *
- * Each prefix call clamps the configured value into the bound (so position 0 returning 27
- * with a bound of 30 still gives 27; with a bound of 10 it gives 9).
+ * Each prefix value is clamped into the call's bound (27 with bound 30 gives 27; bound 10 gives 9).
  */
 public final class IndexBiasedRandomSource implements RandomSource {
     private final int[] sequence;
@@ -45,9 +40,9 @@ public final class IndexBiasedRandomSource implements RandomSource {
     }
 
     /**
-     * A fork is an independent stream, so it gets no steering. Restarting the prefix here handed the
-     * enchantment index and level offset to whatever forked mid-generation as its first rolls (#15).
-     * It continues the price stream instead: seeded when vanilla pricing is on, minimum otherwise.
+     * A fork is an independent stream, so it gets no steering (restarting the prefix would hand the
+     * enchantment index to whatever forked mid-generation, #15). It continues the price stream:
+     * seeded with vanilla pricing, minimum otherwise.
      */
     @Override public RandomSource fork() {
         return costFallback == null ? MinRandomSource.INSTANCE : costFallback.fork();

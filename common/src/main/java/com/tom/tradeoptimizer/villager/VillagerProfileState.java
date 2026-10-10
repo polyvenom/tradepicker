@@ -19,12 +19,9 @@ import java.util.UUID;
 /**
  * World-saved registry of all villager profiles, so picks survive logout / world reload.
  *
- * Stored on the OVERWORLD's data storage rather than the level the villager happens to be
- * standing in. Data storage is per-dimension but a villager keeps its UUID when it goes
- * through a portal, so a per-dimension store made the same villager read as unclaimed on
- * the far side — a second player could claim, re-pick and reset it, and coming back the
- * stale original profile would reassert over the live offers. One global store keyed by
- * UUID makes the profile follow the villager everywhere.
+ * Stored on the overworld's data storage, not the villager's current level: storage is
+ * per-dimension but a villager keeps its UUID through a portal, so a per-dimension store would
+ * make it read as unclaimed on the far side. One global store keyed by UUID follows it everywhere.
  */
 public final class VillagerProfileState extends SavedData {
     public static final SavedDataType<VillagerProfileState> TYPE = new SavedDataType<>(
@@ -38,8 +35,7 @@ public final class VillagerProfileState extends SavedData {
 
     /**
      * Decode each profile on its own so one unreadable entry is skipped instead of failing the
-     * whole list — a single corrupt profile must not cost every other villager on the server its
-     * picks. Encoding is the plain list codec; only the read side is forgiving.
+     * whole list. Encoding is the plain list codec.
      */
     private static Codec<List<VillagerProfile>> lenientList() {
         return new Codec<>() {
@@ -82,10 +78,8 @@ public final class VillagerProfileState extends SavedData {
     }
 
     /**
-     * Move a profile from one villager UUID to another. Conversions (villager →
-     * zombie villager, cure back, lightning → witch) never copy the UUID — vanilla
-     * spawns a brand-new entity — so the profile must be re-keyed to follow it.
-     * Returns true if a profile was moved.
+     * Move a profile from one villager UUID to another (conversions spawn a new entity with a new
+     * UUID). Returns true if a profile was moved.
      */
     public boolean rekey(UUID from, UUID to) {
         VillagerProfile p = profiles.remove(from);
@@ -103,10 +97,8 @@ public final class VillagerProfileState extends SavedData {
     }
 
     /**
-     * Fold a pre-1.4.0 per-dimension store into the global one. Worlds that ran an older build
-     * have profiles filed under whichever dimension the villager was in when it was claimed;
-     * without this they would simply vanish on upgrade. Emptying the source makes this a no-op
-     * on every call after the first, so it can sit on the hot path.
+     * Fold a pre-1.4.0 per-dimension store into the global one. Emptying the source makes this a
+     * no-op after the first call, so it can sit on the hot path.
      */
     private static void absorbLegacyDimensionStore(ServerLevel level, VillagerProfileState global) {
         VillagerProfileState legacy = level.getDataStorage().get(TYPE);

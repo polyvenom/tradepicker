@@ -25,13 +25,11 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Game tests for the enchanted-gear / tipped-arrow picker expansion (issues #4 / #5).
- *
- * These cover the path the old tests didn't: a vanilla enchanted-gear trade is expanded into
- * choosable cards, and each card's synthetic key REGENERATES into a valid offer on apply. The
- * regen-must-equal-preview check matters because {@code ProfileController} matches a regenerated
- * offer against the live one to carry over use-counts — if HEADLINE's roll weren't deterministic
- * per villager, picked trades would silently restock.
+ * Game tests for the enchanted-gear / tipped-arrow picker expansion (#4 / #5): a vanilla gear
+ * trade expands into choosable cards, and each card's synthetic key regenerates into a valid
+ * offer on apply. Regen must equal the preview because {@code ProfileController} matches a
+ * regenerated offer against the live one to carry over use-counts; a non-deterministic HEADLINE
+ * roll would silently restock picked trades.
  */
 public class GearTradeGameTest {
 
@@ -68,11 +66,10 @@ public class GearTradeGameTest {
             helper.assertTrue(card != null,
                     "weaponsmith level 1 produced no enchanted-gear cards in " + mode + " mode");
 
-            // Preview card must already carry the enchantment on the gear item.
             helper.assertTrue(!card.previewOffer().getResult().getEnchantments().isEmpty(),
                     "gear preview result has no enchantments");
 
-            // The key must regenerate into a real offer (the apply path).
+            // The key must regenerate into a real offer.
             Optional<MerchantOffer> regen = OfferFactory.generate(level, villager, card.key(), 1);
             helper.assertTrue(regen.isPresent(), "gear key " + card.key().id() + " failed to regenerate");
             ItemStack result = regen.get().getResult();
@@ -111,10 +108,9 @@ public class GearTradeGameTest {
     }
 
     /**
-     * Tipped-arrow expansion: a fletcher's tipped-arrow trade expands into one card per potion, and
-     * each card regenerates into a tipped arrow carrying that potion. Best-effort on which level the
-     * arrow trade lands at — scans every level and only asserts once a card is found, so it can't fail
-     * spuriously if the headless world gates the trade.
+     * A fletcher's tipped-arrow trade expands into one card per potion, and each card regenerates
+     * into a tipped arrow. Scans every level and only asserts once a card is found, so it can't
+     * fail spuriously if the headless world gates the trade.
      */
     @GameTest
     public void fletcherArrowRoundTrips(GameTestHelper helper) {

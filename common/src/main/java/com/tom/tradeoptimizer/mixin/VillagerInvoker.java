@@ -6,14 +6,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Invoker;
 
 /**
- * Exposes vanilla's private {@code Villager.updateSpecialPrices(Player)} so the picker
- * flow can apply reputation / Hero-of-the-Village discounts.
- *
- * Vanilla only calls updateSpecialPrices from its private {@code startTrading(Player)}
- * method. This mod deliberately bypasses startTrading (it opens the merchant manually
- * via setTradingPlayer + openTradingScreen to avoid the 1-frame menu-disappear bug), so
- * the discount step was getting skipped. ProfileController calls this invoker to put it
- * back, exactly mirroring vanilla's startTrading order.
+ * Exposes vanilla's private {@code Villager.updateSpecialPrices(Player)}. Vanilla only calls it
+ * from {@code startTrading}, which the mod bypasses by opening the merchant manually, so
+ * ProfileController calls it to apply reputation / Hero-of-the-Village discounts.
  */
 @Mixin(Villager.class)
 public interface VillagerInvoker {

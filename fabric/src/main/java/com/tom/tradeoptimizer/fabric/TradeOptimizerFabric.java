@@ -21,8 +21,7 @@ public final class TradeOptimizerFabric implements ModInitializer {
         ServerNetworkHandler.register();
         VillagerInteractionListener.register();
 
-        // Conversions (zombify / cure / lightning) replace the entity and mint a new
-        // UUID; re-key the profile so picks and ownership survive the round trip.
+        // Conversions replace the entity with a new UUID; re-key the profile to follow it.
         ServerLivingEntityEvents.MOB_CONVERSION.register((previous, converted, params) ->
                 ProfileController.onMobConverted(previous, converted));
 

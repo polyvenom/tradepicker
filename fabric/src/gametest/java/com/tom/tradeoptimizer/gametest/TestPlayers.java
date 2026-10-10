@@ -8,8 +8,7 @@ import net.minecraft.world.phys.Vec3;
  * Mock players placed where a real player would be: beside the test's villager.
  *
  * GameTestHelper.makeMockServerPlayerInLevel puts the player at the world spawn, far from the test
- * structure. Since issue #9 every villager action checks reach (ProfileController.canAct), so a
- * player left at spawn would be refused before the behaviour under test ever ran. Every test
+ * structure, and every villager action checks reach (ProfileController.canAct, #9). Every test
  * spawns its villager at relative (1, 2, 1); this stands the player one block east of it.
  */
 public final class TestPlayers {

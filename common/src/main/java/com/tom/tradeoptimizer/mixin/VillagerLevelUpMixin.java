@@ -12,21 +12,17 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * Holds a managed villager at its current rank until the player has picked the new level's trades.
  *
- * Vanilla's increaseMerchantCareer is two lines: bump the level, then roll two random trades for
- * it. Both are wrong here — the trades aren't the player's choice, and a rank the player hasn't
- * picked for is a rank with missing trades. Cancelling the whole method instead of just the trade
- * roll also removes the window where levels could stack up while the player traded.
+ * Vanilla's increaseMerchantCareer bumps the level, then rolls two random trades. Both are wrong
+ * here: the trades aren't the player's choice, and a rank without picks has missing trades.
+ * Cancelling the whole method (not just the roll) also stops levels stacking while the player trades.
  *
- * What the player sees matches vanilla's own pending-level-up behaviour: XP keeps accruing, the
- * bar sits full, and the rank doesn't move until they close the screen and come back — except now
- * coming back opens the picker, and the rank arrives together with the trades they chose.
- * ProfileController re-checks vanilla's own shouldIncreaseLevel condition on interact and applies
- * the level-up itself once the picks land.
+ * To the player this looks like vanilla's pending level-up: XP accrues, the bar sits full, the
+ * rank waits until they close the screen. Coming back opens the picker, and ProfileController
+ * (which re-checks vanilla's shouldIncreaseLevel condition) applies the rank with the picks.
  *
- * Only villagers with a profile are held. One the mod has never touched levels up normally, so
- * vanilla villagers and the "import an existing villager" path are untouched — and this leaves
- * vanilla's other caller of updateTrades (first profession assignment) alone, which is what the
- * truly-fresh import path reads to decide whether a villager has been traded with.
+ * Only villagers with a profile are held; untouched villagers level normally, and vanilla's
+ * other updateTrades caller (first profession assignment) is left alone, since the fresh-import
+ * path reads its result.
  */
 @Mixin(Villager.class)
 public abstract class VillagerLevelUpMixin {

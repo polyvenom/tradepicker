@@ -7,10 +7,8 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 /**
  * Opens the picker when the server says to.
  *
- * Deliberately gui.setScreen, NOT Minecraft.setScreenAndShow: the latter is setScreen plus a
- * forced renderFrame(false), an immediate extra frame drawn with the world skipped. The picker
- * therefore appeared for one frame over a black background before the next normal frame put the
- * world back — the flash players reported on open.
+ * Use gui.setScreen, not Minecraft.setScreenAndShow: the latter forces an extra renderFrame(false)
+ * with the world skipped, which flashes the picker over a black background.
  */
 public final class ClientNetworkHandler {
     private ClientNetworkHandler() {}

@@ -29,22 +29,15 @@ import java.util.UUID;
 
 /**
  * Guards the ownership / permission gates on {@link ProfileController#onPickerSubmit} and
- * {@link ProfileController#onReset}. These are loader-agnostic authorization rules the port must
- * preserve, so they get a dedicated safety net before any refactor:
+ * {@link ProfileController#onReset}: the owner can pick and reset, any other non-op is rejected,
+ * and a server op bypasses the owner check.
  *
- *   - the player who first claims a villager (the owner) can pick trades and reset it;
- *   - any other non-op player is rejected from both;
- *   - a server op bypasses the owner check on both.
+ * Cases are observed through persisted state, not the controller's chat messages. Op status uses
+ * the real server op list; ServerPlayer.permissions() resolves against it live.
  *
- * Cases are observed through persisted state (VillagerProfileState + the villager's data), never
- * through the system messages the controller sends. Op status is granted with the real server op
- * list — ServerPlayer.permissions() resolves against it live, so no relog is needed.
- *
- * Farmer is used for its flat, biome-independent trades — and because trade_rebalance overrides
- * only armorer and librarian, so farmer's pools here are the ones players actually have. That
- * pack is always on in game tests: Minecraft's own GameTestServer builds its world with
- * FeatureFlagRegistry.allFlags(), so every experimental feature is enabled and nothing the mod
- * or the build script sets can turn them off. Prefer a profession the pack doesn't touch.
+ * Farmer is used for its flat, biome-independent trades, and because trade_rebalance overrides
+ * only armorer and librarian. That pack is always on in game tests (GameTestServer enables every
+ * feature flag), so prefer a profession the pack doesn't touch.
  */
 public class OwnershipGateGameTest {
 
@@ -58,7 +51,7 @@ public class OwnershipGateGameTest {
 
         ServerPlayer owner = TestPlayers.near(helper);
 
-        // Owner picks level 1 -> accepted, claims ownership.
+        // Level 1 pick is accepted and claims ownership.
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         VillagerProfile p = state.get(villagerId);
         helper.assertTrue(p != null, "owner submit should create a profile");
@@ -67,13 +60,12 @@ public class OwnershipGateGameTest {
         helper.assertTrue(p.picksFor(1).size() == 2,
                 "owner's level-1 picks should be stored (got " + p.picksFor(1).size() + ")");
 
-        // Owner picks level 2 -> accepted.
         villager.setVillagerData(villager.getVillagerData().withLevel(2));
         ProfileController.onPickerSubmit(owner, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         helper.assertTrue(state.get(villagerId).picksFor(2).size() == 2,
                 "owner's level-2 picks should be stored");
 
-        // Owner resets -> accepted: novice again, picks wiped, ownership preserved.
+        // Reset: novice again, picks wiped, ownership preserved.
         ProfileController.onReset(owner, villagerId);
         helper.assertTrue(villager.getVillagerData().level() == 1, "reset should drop the villager to level 1");
         helper.assertTrue(villager.getVillagerXp() == 0, "reset should zero the villager XP");
@@ -102,7 +94,7 @@ public class OwnershipGateGameTest {
 
         villager.setVillagerData(villager.getVillagerData().withLevel(2));
 
-        // A different player (not owner, not op) tries to pick level 2 -> rejected.
+        // A non-owner non-op pick is rejected.
         ServerPlayer intruder = TestPlayers.near(helper);
         ProfileController.onPickerSubmit(intruder, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         VillagerProfile p = state.get(villagerId);
@@ -111,7 +103,7 @@ public class OwnershipGateGameTest {
                 "non-owner submit must not change ownership");
         helper.assertTrue(p.picksFor(1).size() == 2, "owner's existing picks must remain intact");
 
-        // The same non-owner tries to reset -> rejected, villager + profile unchanged.
+        // So is their reset.
         ProfileController.onReset(intruder, villagerId);
         helper.assertTrue(villager.getVillagerData().level() == 2,
                 "non-owner reset must NOT drop the villager level");
@@ -136,10 +128,8 @@ public class OwnershipGateGameTest {
 
         villager.setVillagerData(villager.getVillagerData().withLevel(2));
 
-        // An op who is NOT the owner. Grant an explicit OWNER-level (4) permission set rather than
-        // the server default — the gametest server's operatorUserPermissions() sits below
-        // GAMEMASTERS, so a bare op() wouldn't clear the command-level check. permissions() reads
-        // the op list live, so this takes effect immediately.
+        // An op who is not the owner. Grant an explicit OWNER-level permission set: the gametest
+        // server's default operator permissions sit below GAMEMASTERS.
         ServerPlayer op = TestPlayers.near(helper);
         level.getServer().getPlayerList().op(op.nameAndId(),
                 Optional.of(LevelBasedPermissionSet.OWNER), Optional.empty());
@@ -147,7 +137,7 @@ public class OwnershipGateGameTest {
                 op.permissions().hasPermission(new Permission.HasCommandLevel(PermissionLevel.GAMEMASTERS)),
                 "sanity: op() should grant the mock player GAMEMASTERS-level permission");
 
-        // Op picks level 2 despite not owning -> accepted (ownership bypassed), owner unchanged.
+        // Op pick is accepted; owner unchanged.
         ProfileController.onPickerSubmit(op, villagerId, 2, firstTwoPicks(level, villager, 2, helper));
         VillagerProfile p = state.get(villagerId);
         helper.assertTrue(p.picksFor(2).size() == 2,
@@ -155,7 +145,7 @@ public class OwnershipGateGameTest {
         helper.assertTrue(p.owner().isPresent() && p.owner().get().equals(owner.getUUID()),
                 "op submit should not steal ownership from the original owner");
 
-        // Op resets despite not owning -> accepted; original owner preserved across the reset.
+        // Op reset is accepted; original owner preserved.
         ProfileController.onReset(op, villagerId);
         helper.assertTrue(villager.getVillagerData().level() == 1, "op reset should drop the villager to level 1");
         VillagerProfile after = state.get(villagerId);
@@ -167,10 +157,9 @@ public class OwnershipGateGameTest {
     }
 
     /**
-     * Resetting must leave no stale trade session behind: it closes the player's open merchant
-     * container and clears the villager's tradingPlayer. Otherwise the next openTradingScreen closes
-     * the lingering menu mid-open, which nulls the freshly-set tradingPlayer, so the new menu fails
-     * MerchantMenu.stillValid() on the next tick — the "first reopen after reset flashes" bug.
+     * Reset must close the player's merchant container and clear the villager's tradingPlayer;
+     * otherwise the next open closes the lingering menu mid-open, nulling the new tradingPlayer,
+     * and the new menu fails MerchantMenu.stillValid() and closes after a frame.
      */
     @GameTest
     public void resetClosesStaleTradeSession(GameTestHelper helper) {
@@ -179,8 +168,7 @@ public class OwnershipGateGameTest {
         UUID villagerId = villager.getUUID();
         ServerPlayer owner = TestPlayers.near(helper);
 
-        // Submitting picks applies offers and opens the merchant (setTradingPlayer + openTradingScreen),
-        // so afterward the player has a live trade session — exactly the state a reset fires from.
+        // Submitting opens the merchant, leaving a live trade session: the state reset fires from.
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         helper.assertTrue(villager.getTradingPlayer() == owner,
                 "precondition: villager should be trading with the player after a pick");
@@ -196,11 +184,9 @@ public class OwnershipGateGameTest {
     }
 
     /**
-     * With vanillaBookLimits enabled, a profession with NO book trades (farmer) is unaffected: the
-     * per-level book cap relaxes so the two non-book picks still go through (no softlock). The
-     * librarian book-cap path itself isn't headless-testable — librarian is one of the two
-     * professions trade_rebalance overrides, and game tests always run with it on, where it
-     * returns null book previews so 0 books enumerate — and is validated in the live game.
+     * With vanillaBookLimits on, a profession with no book trades (farmer) is unaffected: the cap
+     * relaxes so two non-book picks still go through. The librarian path isn't headless-testable:
+     * trade_rebalance overrides librarian and always runs here, yielding no book previews.
      */
     @GameTest
     public void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {
