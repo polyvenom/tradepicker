@@ -3,7 +3,7 @@
 // logic module is its own subproject, declared in settings.gradle:
 //
 //   :common   — loader-agnostic logic, compiled against Mojmapped Minecraft (ModDevGradle / NeoForm)
-//   :fabric   — Fabric Loom (build logic unchanged from the original single-module project)
+//   :fabric   — Fabric Loom
 //   :neoforge — ModDevGradle (NeoForge)
 //
 // Shared versions live in gradle.properties (visible to every subproject).

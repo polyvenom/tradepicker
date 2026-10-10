@@ -10,10 +10,9 @@ base {
 }
 
 neoForge {
-	// Vanilla Mojmapped Minecraft only — NO loader. This module holds the loader-agnostic
-	// logic. Its compiled jar is not shipped; each loader module recompiles common's SOURCE
-	// against its own Mojmapped Minecraft (source-sharing). This config exists so :common
-	// compiles/validates standalone and IDEs resolve net.minecraft.* types.
+	// Vanilla Mojmapped Minecraft only, no loader. Its jar is not shipped: each loader module
+	// recompiles common's SOURCE against its own Minecraft. This config lets :common compile
+	// standalone and IDEs resolve net.minecraft.* types.
 	neoFormVersion = project.neoform_version
 }
 
@@ -26,17 +25,15 @@ dependencies {
 	compileOnly "net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7"
 }
 
-// Client-side shared code (UI, client networking seam) lives under src/client/java. NeoForm
-// provides the full client Minecraft, so :common compiles it in one pass. The loader modules
-// map this directory to their own client source set (Fabric) or single set (NeoForge).
+// Client-side shared code lives under src/client/java; NeoForm provides the full client
+// Minecraft, so :common compiles it in one pass.
 sourceSets {
 	main {
 		java.srcDir 'src/client/java'
 	}
 }
 
-// Java 25 — both MC 26.1.2 loaders are Java 25 platforms (NeoForge 26.1.2's own runtime
-// stack, FancyModLoader/NeoForm, ships Java 25 bytecode), so the whole project is uniform 25.
+// Java 21 bytecode; JDK 25 is the installed toolchain.
 tasks.withType(JavaCompile).configureEach {
 	it.options.release = 21
 }
@@ -50,8 +47,8 @@ java {
 	}
 }
 
-// Same JDK-25 override as :neoforge — MDG tool/run tasks default to a Java 21 toolchain, and
-// only JDK 25 is installed (the tools are 21-bytecode and run fine on 25).
+// MDG tool/run tasks default to a Java 21 toolchain, but only JDK 25 is installed (the tools are
+// 21 bytecode and run fine on 25).
 def jdk25Launcher = javaToolchains.launcherFor {
 	languageVersion = JavaLanguageVersion.of(25)
 }

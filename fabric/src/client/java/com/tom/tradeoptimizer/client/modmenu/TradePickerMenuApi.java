@@ -5,12 +5,8 @@ import com.terraformersmc.modmenu.api.ModMenuApi;
 import com.tom.tradeoptimizer.client.ui.TradePickerConfigScreen;
 
 /**
- * ModMenu entry point. Exposes the Trade Picker config screen when the user
- * clicks "Config" on the mod's tile in ModMenu.
- *
- * Wired in fabric.mod.json under entrypoints.modmenu. Fabric only resolves
- * entrypoint classes when their target entrypoint is requested, so this class
- * is dead weight when ModMenu is absent — harmless.
+ * ModMenu entry point (fabric.mod.json, entrypoints.modmenu): exposes the config screen. Fabric
+ * only loads it when ModMenu asks, so it is inert without ModMenu.
  */
 public class TradePickerMenuApi implements ModMenuApi {
     @Override

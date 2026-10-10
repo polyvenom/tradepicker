@@ -22,10 +22,9 @@ import java.util.UUID;
  *                     vanillaBookLimits is off (no effective limit); when on it's vanilla's
  *                     per-level book-trade count (usually 1), so the rest must be non-book trades.
  *  available        — every possible trade for (profession, level) with min-cost preview
- *  ownedKeys        — keys within {@code available} that this villager ALREADY sells (picked at
- *                     an earlier level, or matching a legacy/imported offer). The client marks
- *                     those cards so the player doesn't re-pick a trade they have (issue #7).
- *                     Empty when the server already filtered them out (hidePickedTrades on).
+ *  ownedKeys        — keys within {@code available} that this villager already sells (earlier
+ *                     picks or legacy offers); the client marks those cards (#7). Empty when the
+ *                     server already filtered them out (hidePickedTrades on).
  */
 public record OpenPickerS2C(
         UUID villagerId,
@@ -38,10 +37,8 @@ public record OpenPickerS2C(
 ) implements CustomPacketPayload {
 
     /**
-     * Upper bound on trade previews read off the wire. A librarian's full enchanted-book
-     * expansion is ~100-200 entries; 4096 is comfortably above any real pool while
-     * stopping a crafted/malicious server from forcing a huge ArrayList pre-allocation
-     * on the client.
+     * Upper bound on trade previews read off the wire (a librarian's pool is ~100-200), so a
+     * malicious server can't force a huge ArrayList pre-allocation on the client.
      */
     private static final int MAX_TRADES = 4096;
 

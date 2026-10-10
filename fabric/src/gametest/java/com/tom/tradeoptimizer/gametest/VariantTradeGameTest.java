@@ -26,15 +26,12 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Issue #14: random-variant trades. Dyed leather rolls its dyes from the RandomSource, so the
- * min-price source pinned it to white; it now expands into one pickable card per dye colour, and
- * each card must regenerate to exactly what it shows.
+ * #14: random-variant trades. Dyed leather rolls its dye from the RandomSource, so it expands
+ * into one card per dye colour, and each card must regenerate to exactly what it shows.
+ * Suspicious stew needs no expansion: vanilla lists one fixed-effect listing per effect
+ * (SuspiciousStewForEmerald), and the test locks that.
  *
- * Suspicious stew is different on this line: 1.21.1 lists one fixed-effect listing per effect
- * (SuspiciousStewForEmerald), so the farmer already offers one card per effect. The test locks that.
- *
- * Farmer and leatherworker are untouched by trade_rebalance (always on in game tests), so these are
- * the vanilla templates.
+ * Farmer and leatherworker are untouched by trade_rebalance (always on in game tests).
  */
 public class VariantTradeGameTest {
 

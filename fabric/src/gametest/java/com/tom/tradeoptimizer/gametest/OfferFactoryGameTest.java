@@ -15,23 +15,19 @@ import net.minecraft.world.entity.npc.VillagerType;
 import java.util.List;
 
 /**
- * Game tests that run inside a real (headless) Minecraft server, so results reflect
- * ACTUAL runtime behaviour -- unlike a fabric-loader-junit unit test, this environment
- * cannot diverge from how the live game validates and builds data.
+ * Game tests run inside a real headless Minecraft server, so results match live behaviour.
+ * Registered via the {@code fabric-gametest} entrypoint in this source set's fabric.mod.json;
+ * run with {@code ./gradlew runGametest}.
  *
- * Registered via the {@code fabric-gametest} entrypoint in this source set's
- * fabric.mod.json. Run with: {@code ./gradlew runGametest}
- *
- * NOTE (book enumeration is not covered here): librarian book trades are biome-specific
- * and return null previews for a synthetic villager in the headless test server.
+ * Book enumeration is not covered here: librarian book trades are biome-specific and return null
+ * previews for a synthetic villager in the headless test server.
  */
 public class OfferFactoryGameTest {
 
     /**
-     * Core enumeration smoke test: a farmer's level-1 pool must turn into a non-empty
-     * list of AvailableTrades, each with a valid (non-empty) preview offer. Farmer
-     * trades are flat -- no enchantment or biome gating -- so this reliably exercises the
-     * trade-set -> picker-card pipeline against real Minecraft data.
+     * Enumeration smoke test: a farmer's level-1 pool must yield a non-empty list of
+     * AvailableTrades, each with a non-empty preview offer. Farmer trades are flat (no enchantment
+     * or biome gating).
      */
     @GameTest(template = "fabric-gametest-api-v1:empty")
     public void farmerLevelOneEnumeratesTrades(GameTestHelper helper) {

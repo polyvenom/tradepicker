@@ -45,9 +45,9 @@ public final class IndexBiasedRandomSource implements RandomSource {
     }
 
     /**
-     * A fork is an independent stream, so it gets no steering. Restarting the prefix here handed the
-     * enchantment index and level offset to whatever forked mid-generation as its first rolls (#15).
-     * It continues the price stream instead: seeded when vanilla pricing is on, minimum otherwise.
+     * A fork is an independent stream and gets no steering: restarting the prefix would hand the
+     * enchantment index and level offset to whatever forked mid-generation (#15). It continues the
+     * price stream instead.
      */
     @Override public RandomSource fork() {
         return costFallback == null ? MinRandomSource.INSTANCE : costFallback.fork();

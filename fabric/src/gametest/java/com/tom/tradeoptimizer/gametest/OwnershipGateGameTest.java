@@ -152,12 +152,11 @@ public class OwnershipGateGameTest {
     /**
      * Reopening the merchant while a previous trade session is still live must NOT flash-close.
      *
-     * Reproduces the 1.21.x "can pick but can't trade" bug: open the merchant once, then open it
-     * again WITHOUT closing the first session (the second open's openMenu would otherwise close the
-     * stale MerchantMenu, whose removed() nulls the villager's tradingPlayer right after we set it,
-     * so the new menu fails its next-tick stillValid() and self-closes after one frame). A second
-     * onPickerSubmit drives the exact open path with a stale container present; afterward the villager
-     * must still be trading with the player.
+     * Open the merchant once, then again WITHOUT closing the first session. Otherwise the second
+     * open's openMenu closes the stale MerchantMenu, whose removed() nulls tradingPlayer right
+     * after we set it, so the new menu fails its next-tick stillValid() and closes after one frame.
+     * A second onPickerSubmit drives that open path with a stale container present; the villager
+     * must still be trading with the player afterward.
      */
     @GameTest(template = "fabric-gametest-api-v1:empty")
     public void reopenWithStaleSessionDoesNotFlash(GameTestHelper helper) {
@@ -173,12 +172,8 @@ public class OwnershipGateGameTest {
         helper.assertTrue(owner.containerMenu instanceof MerchantMenu,
                 "precondition: the player should have a merchant menu open after the first pick");
 
-        // Second open WITHOUT closing the first session — the stale-container case that used to flash.
-        // Direct guard: the bug nulled the villager's tradingPlayer during the reopen, so the new
-        // MerchantMenu failed its next-tick stillValid() (tradingPlayer == player). A non-null match
-        // here is what keeps the menu alive. (We assert tradingPlayer rather than stillValid() because
-        // 1.21.4+ folded a reach/distance check into MerchantMenu.stillValid that a headless mock
-        // player can't satisfy.) Proven red without the fix.
+        // Second open WITHOUT closing the first session. Assert tradingPlayer rather than
+        // stillValid(): it folds in a reach/distance check a headless mock player can't satisfy.
         ProfileController.onPickerSubmit(owner, villagerId, 1, firstTwoPicks(level, villager, 1, helper));
         helper.assertTrue(villager.getTradingPlayer() == owner,
                 "reopen must leave the villager trading with the player (tradingPlayer was nulled = the flash bug)");
@@ -188,17 +183,14 @@ public class OwnershipGateGameTest {
     }
 
     /**
-     * With vanillaBookLimits enabled, a profession with NO book trades (farmer) is unaffected: the
-     * per-level book cap relaxes so the two non-book picks still go through (no softlock). The
-     * librarian book-cap path itself isn't headless-testable — librarian is one of the two
-     * professions the trade_rebalance experiment overrides (VillagerTrades.EXPERIMENTAL_TRADES), and
-     * game tests always run with it on, where it returns null book previews so 0 books enumerate —
-     * and is validated in the live game.
+     * With vanillaBookLimits enabled, a profession with no book trades (farmer) is unaffected: the
+     * cap relaxes so the two non-book picks go through (no softlock). The librarian path isn't
+     * headless-testable: trade_rebalance overrides librarian, and returns null book previews here.
      *
-     * That experiment is always on in game tests: Minecraft's own GameTestServer enables every
-     * feature flag except the redstone and minecart experiments, and nothing the mod or the build
-     * script sets can turn it off. It overrides only armorer and librarian, so prefer another
-     * profession (farmer, fletcher, weaponsmith) for anything that measures a trade pool.
+     * trade_rebalance is always on in game tests (GameTestServer enables every feature flag except
+     * the redstone and minecart experiments, and nothing we set turns it off). It overrides only
+     * armorer and librarian, so use another profession (farmer, fletcher, weaponsmith) for
+     * anything that measures a trade pool.
      */
     @GameTest(template = "fabric-gametest-api-v1:empty")
     public void vanillaBookLimitsDoesNotBlockNonBookPicks(GameTestHelper helper) {

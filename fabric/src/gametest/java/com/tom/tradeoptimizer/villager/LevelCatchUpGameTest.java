@@ -16,14 +16,9 @@ import java.util.UUID;
  * Guards {@link ProfileController#firstUnfilledLevel} — the scan that decides which level the
  * picker opens for.
  *
- * The bug it protects against: the controller used to ask only whether the CURRENT level was
- * filled. Vanilla banks level-ups while a player is trading (the level-up is queued and only
- * applied once the trade screen closes), so two levels can land back to back. The picker then
- * opened for the top level, the one underneath stayed empty forever, and the villager finished at
- * max level with a pair of trades missing.
- *
- * Scanning from level 1 upward is what makes the catch-up chain work, so the "skips a gap in the
- * middle" case below is the one that actually failed before.
+ * Vanilla banks level-ups while a player is trading, so two levels can land back to back. The
+ * scan must start from level 1, not the current level, or the level underneath stays empty
+ * forever; the "gap in the middle" case below covers that.
  */
 public class LevelCatchUpGameTest {
 
@@ -75,8 +70,6 @@ public class LevelCatchUpGameTest {
 
         helper.succeed();
     }
-
-    // -------------------------------------------------------------------------
 
     /** The scan only cares whether a level's list is non-empty, so the ids need not resolve. */
     private static List<TradeKey> dummyPicks() {

@@ -17,12 +17,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.UUID;
 
 /**
- * Adds a small "Reset" button to the merchant trade screen. Clicking it opens our
- * ResetConfirmScreen which double-checks the player wants to wipe the villager.
+ * Adds a "Reset" button to the merchant trade screen, opening ResetConfirmScreen.
  *
- * Extending AbstractContainerScreen<MerchantMenu> is the standard mixin trick to get
- * @Shadow access to inherited fields (leftPos/topPos/imageWidth) — the constructor
- * is dead code at runtime, only present so javac is happy with the extends clause.
+ * Extending AbstractContainerScreen<MerchantMenu> gives access to inherited fields
+ * (leftPos/topPos/imageWidth); the constructor is dead code, there for javac only.
  */
 @Mixin(MerchantScreen.class)
 public abstract class MerchantScreenMixin extends AbstractContainerScreen<MerchantMenu> {
@@ -33,12 +31,10 @@ public abstract class MerchantScreenMixin extends AbstractContainerScreen<Mercha
 
     @Inject(method = "init", at = @At("TAIL"))
     private void tradeoptimizer$addResetButton(CallbackInfo ci) {
-        // Only real villagers can be reset by this mod. Wandering Traders share this
-        // screen but aren't resettable — and showing the button there risks resetting a
-        // villager the player clicked earlier (its UUID would still be the last one set).
+        // Wandering Traders share this screen but aren't resettable, and a stale UUID could
+        // reset an earlier villager.
         if (!ClientLastVillager.wasVillager() || ClientLastVillager.get() == null) return;
 
-        // Place a "Reset" button at the top-right corner just above the trade window.
         int btnW = 50;
         int btnH = 12;
         int x = this.leftPos + this.imageWidth - btnW - 4;

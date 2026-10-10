@@ -18,16 +18,13 @@ import java.util.UUID;
  *
  *   id          — the villager's UUID
  *   profession  — registry name string, sanity check
- *   owner       — UUID of the player who first claimed this villager. Only the owner
- *                 (or a server op) may reset / re-pick levels. Optional for backward
- *                 compatibility with profiles saved before ownership existed; an empty
- *                 owner gets claimed by the next player to right-click the villager.
- *   picks       — levels the player explicitly chose: map<level, TradeKeys>
- *   legacy      — levels we imported from a villager that already had vanilla-rolled
- *                 trades before the mod was installed: map<level, raw MerchantOffers>
+ *   owner       — UUID of the player who first claimed this villager; only the owner (or an op)
+ *                 may reset / re-pick. Empty on older saves: the next right-click claims it.
+ *   picks       — levels the player chose: map<level, TradeKeys>
+ *   legacy      — levels imported from a villager that already had vanilla-rolled trades:
+ *                 map<level, raw MerchantOffers>
  *
- * A level is "filled" if EITHER picks or legacy has entries for it. When the owner
- * Resets, both lanes get wiped (owner is preserved across reset).
+ * A level is "filled" if either picks or legacy has entries for it.
  */
 public record VillagerProfile(
         UUID id,
@@ -43,12 +40,8 @@ public record VillagerProfile(
     }
 
     /**
-     * Level-keyed map codec. Levels are stored as string keys on disk, so the read side has to
-     * parse them back. Parsing per entry (rather than through a key codec built on
-     * {@code Integer::parseInt}) keeps a single corrupted or hand-edited key from throwing
-     * mid-decode and taking the whole profile — and, through the list decode, every other
-     * profile with it. The bad entry is dropped and logged; the rest of the level map loads.
-     * On-disk shape is unchanged.
+     * Level-keyed map codec. Levels are string keys on disk; parsing per entry (not through a key
+     * codec) drops and logs a corrupted key instead of throwing mid-decode and losing the profile.
      */
     private static <V> Codec<Map<Integer, V>> levelMapCodec(Codec<V> valueCodec) {
         return Codec.unboundedMap(Codec.STRING, valueCodec).xmap(
@@ -98,7 +91,7 @@ public record VillagerProfile(
     }
 
     public void setPicks(int level, List<TradeKey> p) {
-        // Picks override legacy for the same level — if the player picks fresh, drop the imports.
+        // Picks override legacy for the same level.
         legacy.remove(level);
         picks.put(level, List.copyOf(p));
     }
@@ -111,24 +104,20 @@ public record VillagerProfile(
         return new VillagerProfile(id, profession, Optional.empty(), new HashMap<>(), new HashMap<>());
     }
 
-    /** Fresh profile that already records its owner. Used the first time a player interacts. */
+    /** Fresh profile that already records its owner. */
     public static VillagerProfile fresh(UUID id, String profession, UUID owner) {
         return new VillagerProfile(id, profession, Optional.of(owner), new HashMap<>(), new HashMap<>());
     }
 
     /**
-     * Return a copy filed under a new villager UUID. Vanilla's mob conversions (zombify,
-     * cure, lightning) DISCARD the old entity and spawn a new one with a new UUID, so the
-     * profile has to be re-keyed to stay attached to the villager it describes.
+     * Return a copy filed under a new villager UUID (mob conversions spawn a new entity).
      */
     public VillagerProfile withId(UUID newId) {
         return new VillagerProfile(newId, profession, owner, picks, legacy);
     }
 
     /**
-     * Return a copy carrying the given owner, preserving picks/legacy as-is. Used to
-     * claim a grandfathered profile that has no owner yet, or to preserve ownership
-     * across a profession-change wipe.
+     * Return a copy carrying the given owner, picks/legacy unchanged.
      */
     public VillagerProfile withOwner(UUID newOwner) {
         return new VillagerProfile(id, profession, Optional.of(newOwner), picks, legacy);

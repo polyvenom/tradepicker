@@ -23,20 +23,15 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 public final class TradeOptimizerNeoForge {
 
     public TradeOptimizerNeoForge(IEventBus modBus, ModContainer container, Dist dist) {
-        // Payload types register on the mod bus (RegisterPayloadHandlersEvent).
         modBus.addListener(NeoForgeNetwork::register);
 
-        // Server-side villager interaction on the game bus.
         NeoForge.EVENT_BUS.addListener(TradeOptimizerNeoForge::onEntityInteract);
 
-        // Conversions (zombify / cure / lightning) replace the entity and mint a new UUID;
-        // re-key the profile so picks and ownership survive the round trip. Mirrors Fabric's
-        // MOB_CONVERSION.
+        // Conversions mint a new UUID; re-key the profile so picks and ownership survive.
         NeoForge.EVENT_BUS.addListener((LivingConversionEvent.Post event) ->
                 ProfileController.onMobConverted(event.getEntity(), event.getOutcome()));
 
-        // Client-only setup (config screen, last-villager tracking). Guarded so a dedicated
-        // server never classloads client code.
+        // Guarded so a dedicated server never classloads client code.
         if (dist == Dist.CLIENT) {
             com.tom.tradeoptimizer.neoforge.client.NeoForgeClientHandlers.initClient(container);
         }
@@ -45,9 +40,8 @@ public final class TradeOptimizerNeoForge {
     }
 
     /**
-     * Mirror of the Fabric UseEntityCallback: when we handle the interaction (picker sent or
-     * merchant opened by us) we cancel vanilla with a SUCCESS result; otherwise we leave the
-     * event alone so vanilla trades normally.
+     * When we handle the interaction (picker sent or merchant opened by us) cancel vanilla with a
+     * SUCCESS result; otherwise leave the event alone so vanilla trades normally.
      */
     private static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
         if (event.getHand() != InteractionHand.MAIN_HAND) return;

@@ -26,20 +26,11 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Regression net for the playtest bug "picker skipped on level-up / mystery villager with
- * unpicked trades and no profile".
- *
- * Root cause: vanilla's Mob.convertTo DISCARDS the converting entity and spawns a brand-new
- * one — the UUID is never copied (ConversionType.SINGLE copies position/effects/team only;
- * confirmed against the decompiled source). Profiles are keyed by villager UUID, so a
- * zombify→cure round trip used to orphan the profile: the cured villager kept its offers
- * (ZombieVillager.finishConversion copies those) but lost its picks/owner, and the next
- * right-click imported its own picked trades — plus any random vanilla level-up rolls — as
- * permanent "legacy" offers, never showing the picker again.
- *
- * The fix re-keys the profile on every conversion (Fabric MOB_CONVERSION / NeoForge
- * LivingConversionEvent.Post → ProfileController.onMobConverted), so this test drives vanilla's
- * real zombify and cure methods rather than simulating them.
+ * A zombify-cure round trip must keep the villager's profile. Vanilla's Mob.convertTo discards
+ * the entity and never copies the UUID, and profiles are keyed by UUID, so without re-keying
+ * (Fabric MOB_CONVERSION / NeoForge LivingConversionEvent.Post -> ProfileController.onMobConverted)
+ * the cured villager keeps its offers but loses its picks and owner. This drives vanilla's real
+ * zombify and cure methods rather than simulating them.
  */
 public class ConversionProfileGameTest {
 
@@ -57,9 +48,8 @@ public class ConversionProfileGameTest {
         VillagerProfileState state = VillagerProfileState.get(level);
         check(helper, state.get(originalId) != null, "profile should exist after submit");
 
-        // Zombify through vanilla's own entry point: a zombie killing the villager. The real
-        // callers matter: NeoForge posts LivingConversionEvent from them, not from Mob.convertTo.
-        // Produces a NEW entity with a NEW UUID. HARD so the kill always converts (NORMAL rolls).
+        // Zombify through a zombie killing the villager: NeoForge posts LivingConversionEvent from
+        // the real callers, not from Mob.convertTo. HARD so the kill always converts (NORMAL rolls).
         Zombie attacker = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(1, 2, 3));
         Difficulty before = level.getDifficulty();
         level.getServer().setDifficulty(Difficulty.HARD, true);
@@ -68,8 +58,8 @@ public class ConversionProfileGameTest {
         } finally {
             level.getServer().setDifficulty(before, true);
         }
-        // Searched around the villager, not the test structure: NeoForge runs these tests on a
-        // 1-block structure, so helper.findOneEntity would look in the wrong place.
+        // Search around the villager: NeoForge runs these tests on a 1-block structure, so
+        // helper.findOneEntity would look in the wrong place.
         ZombieVillager zombie = level.getEntitiesOfClass(ZombieVillager.class,
                 villager.getBoundingBox().inflate(1)).stream().findFirst().orElse(null);
         check(helper, zombie != null, "zombify conversion should produce a zombie villager");
@@ -81,8 +71,7 @@ public class ConversionProfileGameTest {
         check(helper, state.get(zombie.getUUID()) != null,
                 "profile must follow onto the zombie villager (parked while zombified)");
 
-        // Cure through ZombieVillager.finishConversion, what the cure timer runs when it ends.
-        // It's private, hence reflection. Again a brand-new Villager with a brand-new UUID.
+        // Cure through ZombieVillager.finishConversion (what the cure timer runs); private, hence reflection.
         try {
             Method finish = ZombieVillager.class.getDeclaredMethod("finishConversion", ServerLevel.class);
             finish.setAccessible(true);

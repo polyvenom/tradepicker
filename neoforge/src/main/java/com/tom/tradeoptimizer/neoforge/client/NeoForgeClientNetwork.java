@@ -9,8 +9,7 @@ public final class NeoForgeClientNetwork implements IClientNetwork {
 
     @Override
     public void sendToServer(CustomPacketPayload payload) {
-        // 21.1 sends C2S through PacketDistributor (the client.network.ClientPacketDistributor
-        // class only exists on the 26.x line).
+        // C2S goes through PacketDistributor on this line (ClientPacketDistributor is 26.x only).
         PacketDistributor.sendToServer(payload);
     }
 }

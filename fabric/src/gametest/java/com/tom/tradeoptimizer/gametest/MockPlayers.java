@@ -16,11 +16,10 @@ import net.minecraft.world.phys.Vec3;
 import java.util.UUID;
 
 /**
- * 1.21.1 substitute for the 26.x {@code GameTestHelper.makeMockServerPlayerInLevel()}: builds a
- * ServerPlayer with a REAL Connection wired over an in-memory netty EmbeddedChannel and runs the
- * full PlayerList.placeNewPlayer flow, so the player has a working ServerGamePacketListenerImpl.
+ * Builds a ServerPlayer with a real Connection over an in-memory netty EmbeddedChannel and runs
+ * the full PlayerList.placeNewPlayer flow, so it has a working ServerGamePacketListenerImpl.
  * Server flows that send packets (openMenu, openTradingScreen, system messages) run end-to-end;
- * the packets are swallowed by the embedded channel.
+ * the embedded channel swallows the packets.
  */
 public final class MockPlayers {
     private MockPlayers() {}
@@ -31,17 +30,16 @@ public final class MockPlayers {
         GameProfile profile = new GameProfile(UUID.randomUUID(), "test-mock-player");
         ServerPlayer player = new ServerPlayer(server, level, profile, ClientInformation.createDefault());
         Connection connection = new Connection(PacketFlow.SERVERBOUND);
-        // Registering the Connection as the channel's handler fires channelActive, which binds
-        // the channel to the connection — after that it can "send" packets (into the void).
+        // Registering the Connection as the channel's handler fires channelActive, binding the
+        // channel so it can "send" packets.
         new EmbeddedChannel(connection);
         server.getPlayerList().placeNewPlayer(connection, player, CommonListenerCookie.createInitial(profile, false));
         return player;
     }
 
     /**
-     * A mock player standing where a real one would be: beside the test's villager. The harness
-     * builds players at the world spawn, out of reach, and since issue #9 every villager action
-     * checks reach (ProfileController.canAct). Every test spawns its villager at relative (1, 2, 1);
+     * A mock player beside the test's villager: the harness builds players at the world spawn,
+     * out of reach of ProfileController.canAct (#9). Tests spawn the villager at relative (1, 2, 1);
      * this stands the player one block east of it.
      */
     public static ServerPlayer near(GameTestHelper helper) {
@@ -52,9 +50,9 @@ public final class MockPlayers {
     }
 
     /**
-     * Grant op (permission level 4) by writing the ops list directly — the GameTestServer's
-     * default operator permission level can sit below the hasPermissions(2) threshold the mod
-     * checks, so the bare PlayerList.op() isn't deterministic enough for tests.
+     * Grant op (permission level 4) by writing the ops list directly: the GameTestServer's default
+     * operator level can sit below the hasPermissions(2) threshold, so PlayerList.op() isn't
+     * deterministic.
      */
     public static void op(ServerPlayer player) {
         MinecraftServer server = player.serverLevel().getServer();

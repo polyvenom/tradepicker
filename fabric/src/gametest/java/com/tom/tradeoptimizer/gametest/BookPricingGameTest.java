@@ -28,22 +28,20 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Issues #15 and #16: book cards sell what they say, and book prices under vanillaPricing, where
- * each (villager, book) draws a seeded price.
+ * #15 / #16: book cards sell what they say, and prices under vanillaPricing (a seeded price per
+ * villager and book) are stable.
  *
  *  - #16: every card sells exactly the enchantment and level its key names. A book listing rolls
  *    from its own enchantment list (a biome tag under Trade Rebalance), not necessarily
- *    #minecraft:tradeable, so the cards are steered by the list the listing really uses.
- *  - The price a book card shows must be the price the villager then charges. Regeneration used to
- *    share one seeded stream across every listing it tried, so rolls burnt by earlier attempts
- *    shifted the price the real listing read.
- *  - Single-level books (Mending, Silk Touch, curses, the rebalance's fixed-level specials) must
- *    get a real price roll. The steering prefix assumed a level roll that Minecraft skips when
- *    min == max, so the spare slot was eaten by the price roll and pinned it to the minimum.
+ *    #minecraft:tradeable.
+ *  - The price a card shows must be the price the villager charges: regeneration must not share
+ *    one seeded stream across listings.
+ *  - Single-level books (Mending, Silk Touch, curses, fixed-level specials) must get a real price
+ *    roll: Minecraft skips the level roll when min == max, so a spare steering slot would be
+ *    eaten by the price roll and pin it to the minimum.
  *
  * Librarians across every biome and rank. Game tests always run with trade_rebalance on (see
- * OwnershipGateGameTest), whose librarian pools differ by biome; the checks read what each card
- * actually sells, so they hold whatever the pool is.
+ * OwnershipGateGameTest), so pools differ by biome; the checks read what each card actually sells.
  */
 public class BookPricingGameTest {
     private static final List<VillagerType> TYPES = List.of(VillagerType.PLAINS, VillagerType.DESERT,

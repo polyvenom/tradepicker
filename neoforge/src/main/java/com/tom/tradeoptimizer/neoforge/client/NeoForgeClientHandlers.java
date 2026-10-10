@@ -13,15 +13,15 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
 /**
- * Client-only NeoForge hooks. Loaded lazily (only from the Dist.CLIENT branch of the mod
- * constructor / from the clientbound payload handler), so a dedicated server never touches it.
+ * Client-only NeoForge hooks, loaded lazily (from the Dist.CLIENT branch and the clientbound
+ * payload handler) so a dedicated server never touches it.
  */
 public final class NeoForgeClientHandlers {
     private NeoForgeClientHandlers() {}
 
     /** Register client-side hooks: the config screen and last-villager tracking for the Reset button. */
     public static void initClient(ModContainer container) {
-        // The "Config" button on the mod's entry in NeoForge's mod list (Fabric gets it via ModMenu).
+        // The "Config" button in NeoForge's mod list (Fabric uses ModMenu).
         container.registerExtensionPoint(IConfigScreenFactory.class,
                 (mod, parent) -> new TradePickerConfigScreen(parent));
 
@@ -30,13 +30,12 @@ public final class NeoForgeClientHandlers {
             if (event.getTarget() instanceof Villager v) {
                 ClientLastVillager.set(v.getUUID());
             } else {
-                // Wandering Trader / anything else: clear so the Reset button can't target a
-                // villager the player clicked earlier.
+                // Wandering Trader or anything else: Reset must not target an earlier villager.
                 ClientLastVillager.clear();
             }
         });
 
-        // A villager from another world or server is never the one a merchant screen belongs to (#18).
+        // A villager from another world or server never owns a merchant screen (#18).
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingIn event) -> ClientLastVillager.clear());
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> ClientLastVillager.clear());
     }

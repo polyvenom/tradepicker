@@ -27,18 +27,15 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Release sweep: every profession, every villager biome, every merchant level — driven through
- * the same entry points the game uses, with every failure collected so one run reports them all.
+ * Release sweep: every profession, villager biome and merchant level, driven through the game's
+ * entry points, with every failure collected so one run reports them all.
  *
- * The other suites each pin one mechanic on one profession (mostly farmer). This one exists so
- * that a change to enumeration, generation, levelling or pricing can't pass by breaking a
- * profession nobody happened to test. It reads professions and biomes from the registries, so a
- * profession or biome Mojang adds is swept automatically.
+ * The other suites pin one mechanic on one profession (mostly farmer); this one keeps a change to
+ * enumeration, generation, levelling or pricing from passing by breaking an untested profession.
+ * It reads professions and biomes from the registries, so new ones are swept automatically.
  *
  * Game tests always run with trade_rebalance on (see OwnershipGateGameTest), so armorer and
- * librarian are swept against its VillagerTrades.EXPERIMENTAL_TRADES tables rather than the
- * default ones. Every other
- * profession is exactly what players have.
+ * librarian are swept against VillagerTrades.EXPERIMENTAL_TRADES rather than the default tables.
  */
 public class ProfessionSweepGameTest {
 
@@ -46,15 +43,13 @@ public class ProfessionSweepGameTest {
     private static final int MAX_REPORTED = 40;
 
     /**
-     * Vanilla's thirteen trading professions. A sweep that finds fewer has quietly stopped
-     * sweeping — and would otherwise pass with nothing checked.
+     * Vanilla's thirteen trading professions. A sweep that finds fewer would pass with nothing checked.
      */
     private static final int MIN_PROFESSIONS = 13;
 
     /**
-     * Every card the picker could show must generate into a real offer, and the offer must be the
-     * one the card advertised — same items, same counts. A card that generates nothing, or
-     * generates something else, is a trade the player can pick and never receive.
+     * Every card the picker could show must generate into a real offer matching what the card
+     * advertised (same items, same counts).
      */
     @GameTest(template = "fabric-gametest-api-v1:empty", timeoutTicks = 400)
     public void everyCardInEveryPoolGeneratesWhatItShows(GameTestHelper helper) {
@@ -113,12 +108,11 @@ public class ProfessionSweepGameTest {
 
     /**
      * Each profession taken Novice to Master through the real pick and level-up path, then cured,
-     * with the vanilla discount formula checked on every offer it ends up selling.
+     * with the vanilla discount formula checked on every offer it sells.
      *
-     * Levels with a choice go through onPickerSubmit, levels with nothing to choose through the
-     * auto-progress path in sendPicker — the same split the game makes. That covers the held
-     * level-up, the grant on both paths, offer building, and that a master villager can't be
-     * pushed past Master.
+     * Levels with a choice go through onPickerSubmit, the rest through sendPicker's auto-progress,
+     * as in the game. Covers the held level-up, the grant on both paths, offer building, and that
+     * a master villager can't be pushed past Master.
      */
     @GameTest(template = "fabric-gametest-api-v1:empty", timeoutTicks = 400)
     public void everyProfessionLevelsToMasterAndTakesTheCureDiscount(GameTestHelper helper) {
@@ -145,7 +139,7 @@ public class ProfessionSweepGameTest {
                         }
                     }
 
-                    // The game's own split: no-choice ranks auto-progress, the rest need a submit.
+                    // No-choice ranks auto-progress; the rest need a submit.
                     ProfileController.sendPicker(player, villager, profile, lvl);
                     profile = state.get(villager.getUUID());
                     if (!profile.isFilled(lvl)) {
@@ -178,7 +172,7 @@ public class ProfessionSweepGameTest {
                     problems.add(who + ": a Master villager reports a further level-up");
                 }
 
-                // Cure-grade reputation, exactly what curing a zombie villager leaves behind.
+                // Cure-grade reputation, as curing a zombie villager leaves it.
                 villager.getGossips().add(player.getUUID(), GossipType.MAJOR_POSITIVE, 20);
                 villager.getGossips().add(player.getUUID(), GossipType.MINOR_POSITIVE, 25);
                 int reputation = villager.getPlayerReputation(player);
@@ -209,8 +203,6 @@ public class ProfessionSweepGameTest {
         if (offersChecked == 0) problems.add("no offers were checked");
         report(helper, problems, professions + " professions, " + offersChecked + " cured offers checked");
     }
-
-    // -------------------------------------------------------------------------
 
     /** Every registered profession that trades — read from the registry, not a hard-coded list. */
     private static List<VillagerProfession> tradingProfessions(ServerLevel level) {

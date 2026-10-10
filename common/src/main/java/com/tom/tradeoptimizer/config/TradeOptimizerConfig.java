@@ -15,13 +15,9 @@ import java.util.TreeSet;
 /**
  * Server-side configuration for Trade Picker.
  *
- * Lives at {@code config/tradeoptimizer.json}. Pricing is computed server-side, so this is
- * the authoritative home for the price-mode switch: in singleplayer it is effectively the
- * player's own toggle; on a dedicated server only the operator's setting governs the prices
- * every client sees.
- *
- * The file is created with defaults on first load and re-serialized afterward so new keys
- * are filled in automatically across updates.
+ * Lives at {@code config/tradeoptimizer.json}. Pricing is computed server-side, so on a dedicated
+ * server only the operator's setting governs the prices every client sees. The file is
+ * re-serialized on load so new keys are filled in.
  */
 public final class TradeOptimizerConfig {
     private static final String FILE_NAME = TradeOptimizer.MOD_ID + ".json";
@@ -38,10 +34,9 @@ public final class TradeOptimizerConfig {
     }
 
     /**
-     * {@code false} (default): the picker shows and applies the lowest possible vanilla price
-     * for every trade — the mod's signature behavior. {@code true}: prices use vanilla's
-     * randomized range, but seeded deterministically per villager + trade so the previewed
-     * price matches the applied price and can't be re-rolled by reopening the picker.
+     * {@code false} (default): the lowest possible vanilla price for every trade. {@code true}:
+     * vanilla's randomized range, seeded per villager + trade so the previewed price matches the
+     * applied one and can't be re-rolled by reopening the picker.
      */
     private volatile boolean vanillaPricing = false;
 
@@ -55,10 +50,9 @@ public final class TradeOptimizerConfig {
     }
 
     /**
-     * {@code false} (default): the picker lets you choose up to {@code picksRequired} enchanted
-     * books at every level — the mod's generous default. {@code true}: cap the number of book
-     * picks per level to how many book trades vanilla actually offers there (usually one), forcing
-     * the remaining pick(s) onto non-book trades for a vanilla-accurate librarian economy.
+     * {@code false} (default): up to {@code picksRequired} enchanted books at every level.
+     * {@code true}: cap book picks per level at how many book trades vanilla offers there
+     * (usually one).
      */
     private volatile boolean vanillaBookLimits = false;
 
@@ -72,11 +66,9 @@ public final class TradeOptimizerConfig {
     }
 
     /**
-     * {@code false} (default): trades already on this villager (picked at an earlier level) still
-     * appear in the picker, marked with a check so you can tell them apart. {@code true}: they are
-     * removed from the picker list entirely — you only ever see trades you don't have yet
-     * (issue #7). The filter never shrinks the list below the number of picks the level requires,
-     * so a level can always be filled.
+     * {@code false} (default): trades already on this villager still appear in the picker, marked.
+     * {@code true}: they are removed (#7), unless that would leave fewer cards than the level
+     * requires.
      */
     private volatile boolean hidePickedTrades = false;
 
@@ -90,16 +82,14 @@ public final class TradeOptimizerConfig {
     }
 
     /**
-     * How enchanted GEAR trades (sword, bow, armor, tools, fishing rod — anything that isn't an
-     * enchanted book) are turned into pickable cards. Books are unaffected.
+     * How enchanted gear trades (anything that isn't an enchanted book) become pickable cards.
      *
      * <ul>
      *   <li>{@link GearEnchantMode#SINGLE} — one card per (enchantment × level).</li>
      *   <li>{@link GearEnchantMode#HEADLINE} (default) — one card per enchantment; the game still
      *       rolls its level AND any vanilla bonus enchantments.</li>
      * </ul>
-     * {@link #parse} falls back to HEADLINE for any other string, so a config file written with an
-     * old or unknown mode (e.g. "combo") still loads as HEADLINE.
+     * {@link #parse} falls back to HEADLINE for any other string.
      */
     public enum GearEnchantMode {
         SINGLE, HEADLINE;
@@ -127,9 +117,8 @@ public final class TradeOptimizerConfig {
     }
 
     /**
-     * Professions (by full id, e.g. {@code minecraft:weaponsmith}) for which picked enchanted-gear /
-     * tipped-arrow trades cost MORE for rarer + higher-level enchantments, instead of the mod's flat
-     * cheapest price. Empty by default — every profession just follows {@link #vanillaPricing}.
+     * Professions (full id, e.g. {@code minecraft:weaponsmith}) whose enchanted-gear / tipped-arrow
+     * trades cost more for rarer, higher-level enchantments. Empty by default.
      */
     private volatile Set<String> costScalingProfessions = new TreeSet<>();
 
@@ -173,10 +162,10 @@ public final class TradeOptimizerConfig {
             }
         }
         if (cfg == null) cfg = new TradeOptimizerConfig();
-        // Gson hands back a LinkedHashSet (or null); restore the sorted set.
+        // Gson hands back a LinkedHashSet or null.
         cfg.costScalingProfessions = cfg.costScalingProfessions == null
                 ? new TreeSet<>() : new TreeSet<>(cfg.costScalingProfessions);
-        cfg.save(); // create the file with defaults, or normalize it with any newly added keys
+        cfg.save();
         return cfg;
     }
 

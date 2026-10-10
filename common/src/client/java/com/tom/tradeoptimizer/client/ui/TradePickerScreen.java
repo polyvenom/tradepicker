@@ -41,10 +41,8 @@ import java.util.Set;
  * Picker UI: lists every level-N trade for a villager as cards, lets the player pick
  * the required number (vanilla = 2), and ships the picks back to the server.
  *
- * Search: an EditBox above the grid filters cards in real time. Match is case-insensitive
- * and runs against the same tooltip text shown on hover, so typing "mending" surfaces just
- * the Mending Book card, "sharp" surfaces all five Sharpness levels, "emerald" surfaces
- * every emerald-buy trade, etc.
+ * Search: an EditBox above the grid filters cards in real time, case-insensitively, against the
+ * same tooltip text shown on hover.
  */
 public final class TradePickerScreen extends Screen {
 
@@ -85,10 +83,8 @@ public final class TradePickerScreen extends Screen {
     private String searchQuery = "";
 
     /**
-     * Set once Confirm is pressed. The screen deliberately stays up while the server works:
-     * closing to the world first meant the player watched the world for the network round-trip
-     * before the merchant (or the next level's picker) appeared — a blink on every confirm.
-     * Whatever the server opens next replaces this screen, so the transition is seamless.
+     * Set once Confirm is pressed. The screen stays up while the server works, so closing to the
+     * world doesn't blink before the merchant (or next picker) opens and replaces it.
      */
     private boolean submitted = false;
 
@@ -114,8 +110,7 @@ public final class TradePickerScreen extends Screen {
     protected void init() {
         super.init();
 
-        // Pre-compute display data once.
-        fitCache.clear(); // widths change with GUI scale; also bounds growth
+        fitCache.clear(); // widths change with GUI scale
         cardLabels.clear();
         cardTooltips.clear();
         cardSearch.clear();
@@ -177,11 +172,9 @@ public final class TradePickerScreen extends Screen {
     }
 
     /**
-     * Default sort by type (issue #7): plain trades first, enchanted cards (books + enchanted
-     * gear — the big expanded walls) after them; within each group by result item, then by the
-     * lead enchantment / potion registry id, then by its numeric level, then by pool order as
-     * the stable tie. Keys come from the data, never from the (localized) labels. Only the
-     * DISPLAY order changes — selections and network picks still use pool indices.
+     * Default sort by type (#7): plain trades first, enchanted cards after them; within each group
+     * by result item, lead enchantment / potion id, numeric level, then pool order. Keys come from
+     * the data, never localized labels. Only the display order changes; picks use pool indices.
      */
     private void rebuildSortOrder() {
         sortedOrder.clear();
@@ -603,8 +596,7 @@ public final class TradePickerScreen extends Screen {
         if (selectedIndices.contains(idx)) {
             selectedIndices.remove(idx);
         } else if (selectedIndices.size() < data.picksRequired()) {
-            // Vanilla book-limit mode: don't let books past the per-level cap. When the toggle is
-            // off, maxBookPicks == picksRequired so this never blocks anything.
+            // Book-limit mode: no books past the per-level cap (maxBookPicks == picksRequired when off).
             if (isBookCard(idx) && selectedBookCount() >= data.maxBookPicks()) {
                 return;
             }

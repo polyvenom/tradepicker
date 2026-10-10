@@ -16,20 +16,18 @@ import java.util.Locale;
 import java.util.function.Consumer;
 
 /**
- * Runs the Fabric game-test classes (shared via the gameTest source set) on NeoForge. On 1.21.1
- * both loaders use vanilla's annotation framework, so the same {@code @GameTest} methods apply;
- * they are turned into {@link TestFunction}s here rather than through RegisterGameTestsEvent
- * because NeoForge would glue the class name onto the Fabric-supplied
- * {@code fabric-gametest-api-v1:empty} template. Every test is pointed at our own all-void
- * {@code tradeoptimizer:empty} structure instead (SNBT shipped into the run dir's
- * gameteststructures folder by the build). The class list mirrors
- * fabric/src/gametest/resources/fabric.mod.json.
+ * Runs the Fabric game-test classes (shared via the gameTest source set) on NeoForge. Both
+ * loaders use vanilla's annotation framework, so the same {@code @GameTest} methods apply; they
+ * become {@link TestFunction}s here rather than via RegisterGameTestsEvent because NeoForge would
+ * glue the class name onto the Fabric-supplied {@code fabric-gametest-api-v1:empty} template.
+ * Every test is pointed at our own all-void {@code tradeoptimizer:empty} structure instead
+ * (SNBT staged into the run dir's gameteststructures folder by the build).
  */
 @EventBusSubscriber(modid = "tradeoptimizer")
 public final class NeoForgeGameTests {
     private NeoForgeGameTests() {}
 
-    // Keep in sync with "fabric-gametest" in fabric/src/gametest/resources/fabric.mod.json.
+    // Mirrors "fabric-gametest" in fabric/src/gametest/resources/fabric.mod.json.
     private static final List<String> TEST_CLASSES = List.of(
             "com.tom.tradeoptimizer.gametest.OfferFactoryGameTest",
             "com.tom.tradeoptimizer.gametest.RestockExploitGameTest",

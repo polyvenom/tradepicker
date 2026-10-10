@@ -12,15 +12,14 @@ import java.util.UUID;
 
 /**
  * Client -> server: the player picked these trades for the indicated villager+level.
- * Server validates picks against the actual TradeSet contents before applying
+ * The server validates picks against the real trade pool before applying
  * (see ProfileController.onPickerSubmit).
  */
 public record PickerSubmitC2S(UUID villagerId, int level, List<TradeKey> picks) implements CustomPacketPayload {
 
     /**
-     * Hard cap on the pick count read off the wire. A legit picker submit is 2; this
-     * leaves generous headroom while preventing a crafted packet from claiming a huge
-     * count and forcing a multi-gigabyte ArrayList pre-allocation (server-crash DoS).
+     * Hard cap on the pick count read off the wire, so a crafted packet can't force a huge
+     * ArrayList pre-allocation.
      */
     private static final int MAX_PICKS = 64;
 

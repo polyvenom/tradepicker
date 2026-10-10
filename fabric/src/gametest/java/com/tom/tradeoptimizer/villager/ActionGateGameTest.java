@@ -21,12 +21,11 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Issue #9: the server-side trust gate on every player action. A modified client can send a submit
- * or reset for any villager it has seen, so the server re-checks reach, liveness and who is trading,
- * refuses to re-pick a level, drops duplicate picks, and scopes reset to this villager's own screen.
+ * #9: the server-side trust gate on every player action: reach, liveness, who is trading, no
+ * re-pick of a level, no duplicate picks, and reset scoped to this villager's own screen.
  *
- * Farmer for the same reason as OwnershipGateGameTest: flat trades the experimental trade_rebalance
- * pack (always on in game tests) doesn't touch.
+ * Farmer for the same reason as OwnershipGateGameTest: flat trades the trade_rebalance pack
+ * (always on in game tests) doesn't touch.
  */
 public class ActionGateGameTest {
 
@@ -105,8 +104,7 @@ public class ActionGateGameTest {
         ServerPlayer owner = MockPlayers.near(helper);
         List<TradeKey> one = picks(level, villager, 0, 0);
         ProfileController.onPickerSubmit(owner, villager.getUUID(), 1, one);
-        // Deduplicated, [A, A] is one pick for a two-pick level: refused outright rather than
-        // stored once, which would lock the level a trade short.
+        // Deduplicated, [A, A] is one pick for a two-pick level: refused, not stored once.
         VillagerProfile profile = VillagerProfileState.get(level).get(villager.getUUID());
         helper.assertTrue(profile == null || profile.picksFor(1).isEmpty(),
                 "a duplicated pick must not be stored (got "
