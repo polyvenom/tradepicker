@@ -6,13 +6,9 @@ import net.minecraft.world.level.levelgen.PositionalRandomFactory;
 /**
  * A deterministic-zero RandomSource — every random call returns the minimum value.
  *
- * Plugged into the LootContext when we ask a VillagerTrade to generate a MerchantOffer.
- * Because Mojang's NumberProviders implement min..max as `min + nextInt(max - min + 1)`,
- * a nextInt-returns-0 source produces the minimum (cheapest) price end.
- *
- * Side effects we accept: if a trade uses random for choosing variants (e.g. dye colors,
- * unbiased pools), it will get the first item. For the picker UI, each VillagerTrade is
- * already a separate selectable entry, so variant-roll is not a concern.
+ * Handed to an ItemListing when generating a MerchantOffer: vanilla draws min..max as
+ * `min + nextInt(max - min + 1)`, so a source returning 0 gives the cheapest price. Variant rolls
+ * also take the first option; listings that vary (books, gear, dyes) are expanded into cards.
  */
 public final class MinRandomSource implements RandomSource {
     public static final MinRandomSource INSTANCE = new MinRandomSource();

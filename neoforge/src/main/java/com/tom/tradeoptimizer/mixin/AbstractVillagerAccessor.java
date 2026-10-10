@@ -6,9 +6,8 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
 
 /**
- * Setter for {@code AbstractVillager.offers}. 1.21.1 exposes no working public setter —
- * {@code overrideOffers} exists but is an empty no-op stub — so the picker writes the
- * protected field directly when applying the player's chosen trades.
+ * Setter for {@code AbstractVillager.offers}: {@code overrideOffers} is an empty no-op stub, so
+ * the picker writes the protected field directly.
  */
 @Mixin(AbstractVillager.class)
 public interface AbstractVillagerAccessor {

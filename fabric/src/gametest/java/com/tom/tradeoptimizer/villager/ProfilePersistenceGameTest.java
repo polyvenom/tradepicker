@@ -22,12 +22,11 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Guards two fixes to {@link ProfileController#applyToVillager} and the profile store's
- * dimension scoping (issues #11 and #12).
+ * Guards {@link ProfileController#applyToVillager} and the profile store's dimension scoping
+ * (#11, #12).
  *
- * Lives in package com.tom.tradeoptimizer.villager so it can call applyToVillager directly:
- * it's package-private (the only public callers all sit behind Services.NETWORK.canSendOpenPicker,
- * which a headless mock player can't satisfy), same reasoning as LegacyBucketingGameTest.
+ * In package com.tom.tradeoptimizer.villager to call the package-private applyToVillager: its
+ * public callers sit behind Services.NETWORK.canSendOpenPicker, which a mock player can't satisfy.
  */
 public class ProfilePersistenceGameTest {
 
@@ -43,16 +42,11 @@ public class ProfilePersistenceGameTest {
     }
 
     /**
-     * Issue #11: legacy offers used to be matched by object IDENTITY against the villager's
-     * live offers. That only holds within a single session — a codec round trip (world save
-     * + reload) always hands back a fresh MerchantOffer instance, so post-reload the identity
-     * check found nothing, fell through to the profile's stored snapshot, and the villager's
-     * accumulated use-count silently reset to 0 (a free restock). The fix matches by VALUE
-     * (result + base cost) instead, so a decoded snapshot still finds and keeps its live
-     * counterpart.
+     * #11: legacy offers are matched to live offers by VALUE (result + base cost), not identity: a
+     * codec round trip (save + reload) hands back a fresh MerchantOffer, so identity would fall
+     * through to the stored snapshot and reset the use-count (a free restock).
      *
-     * Simulates the reload by building the "live" offer and the profile's "legacy" offer as
-     * two separate but value-equal instances — exactly what a save/load round trip produces.
+     * Simulates the reload with two separate, value-equal instances for the "live" and "legacy" offer.
      */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void legacyUseCountsSurviveReload(GameTestHelper helper) {
@@ -66,8 +60,7 @@ public class ProfilePersistenceGameTest {
         liveOffers.add(liveOffer);
         Services.PLATFORM.setVillagerOffers(villager, liveOffers);
 
-        // Separate instance, value-equal to liveOffer, 0 uses — stands in for what the codec
-        // decodes back after a reload.
+        // Value-equal to liveOffer with 0 uses: what the codec decodes after a reload.
         MerchantOffer decodedSnapshot = new MerchantOffer(
                 new ItemCost(Items.WHEAT, 20), new ItemStack(Items.EMERALD, 1), 16, 2, 0.05f);
         VillagerProfile profile = VillagerProfile.fresh(villager.getUUID(), "minecraft:farmer");
@@ -84,17 +77,12 @@ public class ProfilePersistenceGameTest {
     }
 
     /**
-     * Pins the claim ORDER inside applyToVillager: legacy offers must claim their matching
-     * live instance before picks get a chance to generate and match against the same pool.
-     * If picks claimed first, a legacy offer whose value happens to match a regenerated pick
-     * would lose its live (used) instance to the pick and fall back to its 0-use stored copy —
-     * the same restock-rollback bug as issue #11, but reachable through claim ordering instead
-     * of missing identity.
+     * Pins the claim ORDER inside applyToVillager: legacy offers must claim their matching live
+     * instance before picks match against the same pool, or a legacy offer equal to a regenerated
+     * pick would lose its used instance and fall back to its 0-use copy (the #11 restock rollback).
      *
-     * No picks are configured here (deliberately, to keep this independent of trade-set
-     * contents) — the profile has only a legacy entry at level 1. The live offers list also
-     * carries an unrelated second offer that isn't referenced by the profile at all, to confirm
-     * it's dropped rather than leaking into the rebuilt list.
+     * No picks are configured, to stay independent of trade-set contents. The live list also
+     * carries an unrelated offer the profile doesn't reference, which must be dropped.
      */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void aMatchingPickCannotStealTheLegacyInstance(GameTestHelper helper) {
@@ -129,13 +117,9 @@ public class ProfilePersistenceGameTest {
     }
 
     /**
-     * Issue #12: the profile store used to live on whichever dimension's data storage the
-     * villager happened to be standing in. A villager keeps its UUID through a portal, but its
-     * profile didn't follow — the far side saw it as unclaimed (a second player could re-claim,
-     * re-pick and reset it), and stepping back the stale original profile would reassert itself
-     * over the live offers. The fix parks every profile on the OVERWORLD's data storage and has
-     * {@link VillagerProfileState#get(ServerLevel)} always resolve there, regardless of which
-     * level is asking.
+     * #12: every profile lives on the OVERWORLD's data storage, and
+     * {@link VillagerProfileState#get(ServerLevel)} resolves there whichever level asks, so a
+     * villager keeps its profile through a portal.
      */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void profileStoreIsSharedAcrossDimensions(GameTestHelper helper) {
@@ -144,8 +128,7 @@ public class ProfilePersistenceGameTest {
         ServerLevel nether = server.getLevel(Level.NETHER);
 
         if (nether == null) {
-            // A headless gametest server may not have the nether loaded. Nothing to compare
-            // against, so there's no per-dimension regression to catch here — not a failure.
+            // The headless server may not have the nether loaded: nothing to compare, not a failure.
             helper.succeed();
             return;
         }

@@ -13,10 +13,8 @@ import net.minecraft.server.level.ServerPlayer;
 public final class FabricNetwork implements INetwork {
 
     /**
-     * Register the custom-payload types. On 1.21.1 the vanilla clientbound custom-payload cap is
-     * 1 MiB, which comfortably fits the librarian's full enchant×level option list (~30 KB) — so
-     * the 26.x registerLarge carve-out isn't needed here, and 1.21.1's Fabric API names the
-     * registries playS2C/playC2S. Called once from the mod entry point.
+     * Register the custom-payload types. Vanilla's 1 MiB clientbound payload cap comfortably fits
+     * the librarian's full option list (~30 KB), so no registerLarge is needed.
      */
     public static void registerPayloadTypes() {
         PayloadTypeRegistry.playS2C().register(

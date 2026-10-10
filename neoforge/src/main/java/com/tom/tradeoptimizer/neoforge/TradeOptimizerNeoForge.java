@@ -21,10 +21,8 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 public final class TradeOptimizerNeoForge {
 
     public TradeOptimizerNeoForge(IEventBus modBus, Dist dist) {
-        // Payload types register on the mod bus (RegisterPayloadHandlersEvent).
         modBus.addListener(NeoForgeNetwork::register);
 
-        // Server-side villager interaction on the game bus.
         NeoForge.EVENT_BUS.addListener(TradeOptimizerNeoForge::onEntityInteract);
 
         // Client-only setup (last-villager tracking). Guarded so a dedicated server never
@@ -37,9 +35,8 @@ public final class TradeOptimizerNeoForge {
     }
 
     /**
-     * Mirror of the Fabric UseEntityCallback: when we handle the interaction (picker sent or
-     * merchant opened by us) we cancel vanilla with a SUCCESS result; otherwise we leave the
-     * event alone so vanilla trades normally.
+     * When we handle the interaction (picker sent or merchant opened by us) cancel vanilla with a
+     * SUCCESS result; otherwise leave the event alone so vanilla trades normally.
      */
     private static void onEntityInteract(PlayerInteractEvent.EntityInteract event) {
         if (event.getHand() != InteractionHand.MAIN_HAND) return;

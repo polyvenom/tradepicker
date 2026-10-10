@@ -15,10 +15,9 @@ import net.minecraft.server.players.ServerOpListEntry;
 import java.util.UUID;
 
 /**
- * 1.21.1 substitute for the 26.x {@code GameTestHelper.makeMockServerPlayerInLevel()} — same
- * recipe as the Fabric gametest twin: a ServerPlayer with a real Connection over an in-memory
- * netty EmbeddedChannel, run through the full PlayerList.placeNewPlayer flow so packet-sending
- * server code works end-to-end (packets vanish into the embedded channel).
+ * Same recipe as the Fabric gametest twin: a ServerPlayer with a real Connection over an
+ * in-memory netty EmbeddedChannel, run through the full PlayerList.placeNewPlayer flow so
+ * packet-sending server code works end-to-end.
  */
 public final class MockPlayers {
     private MockPlayers() {}

@@ -20,7 +20,7 @@ public final class TradeOptimizer {
 
     /** Shared init: load config, and nudge if the now-redundant trade-cycling mod is present. */
     public static void init() {
-        TradeOptimizerConfig.get(); // load (and create on first run) config/tradeoptimizer.json
+        TradeOptimizerConfig.get();
 
         if (Services.PLATFORM.isModLoaded("trade-cycling")) {
             LOGGER.warn("trade-cycling mod is installed alongside Trade Optimizer. "

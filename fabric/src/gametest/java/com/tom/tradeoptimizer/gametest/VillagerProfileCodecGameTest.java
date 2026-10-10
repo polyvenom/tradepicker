@@ -64,15 +64,10 @@ public class VillagerProfileCodecGameTest {
     }
 
     /**
-     * Issue #13: {@link VillagerProfile#CODEC}'s level maps are keyed by a hand-parsed string
-     * ("1", "2", ...). A hand-edited save (or a bad write, or a future format change) can leave
-     * a key that isn't a valid integer. Naively building the level map with a key codec over
-     * {@code Integer::parseInt} would throw mid-decode and fail the WHOLE profile over one bad
-     * key. The profile's level-map codec instead parses each entry individually, drops (and
-     * logs) only the offending one, and lets every valid level load.
-     *
-     * Confirms this by hand-corrupting an encoded profile's picks map with a bogus level key
-     * before decoding.
+     * #13: {@link VillagerProfile#CODEC}'s level maps are keyed by strings ("1", "2", ...), and a
+     * hand-edited or bad save can leave a non-integer key. The codec must drop only that entry
+     * rather than fail the whole profile mid-decode. Corrupts an encoded picks map with a bogus
+     * key before decoding.
      */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void malformedLevelKeyIsSkippedNotFatal(GameTestHelper helper) {
@@ -88,8 +83,7 @@ public class VillagerProfileCodecGameTest {
         Tag encoded = VillagerProfile.CODEC.encodeStart(ops, profile).getOrThrow();
         CompoundTag root = (CompoundTag) encoded;
         CompoundTag picksTag = root.getCompound("picks").orElseThrow();
-        // Copy a real level's entry under a key that Integer.parseInt can't handle — simulates
-        // a hand-edited or corrupted save, not anything the mod itself would ever write.
+        // A key Integer.parseInt can't handle: simulates a corrupted save.
         Tag levelOneEntry = picksTag.get("1");
         picksTag.put("not-a-level", levelOneEntry);
         root.put("picks", picksTag);
@@ -108,14 +102,9 @@ public class VillagerProfileCodecGameTest {
     }
 
     /**
-     * Pins the blast radius of a corrupt entry one level up, in {@link VillagerProfileState}'s
-     * list codec: a single unreadable profile in the saved list must not sink every OTHER
-     * villager's profile with it. The list codec decodes each element on its own and skips (with
-     * a log) any entry that doesn't parse as a VillagerProfile, instead of failing the list as a
-     * whole.
-     *
-     * Builds a raw NBT list with a valid profile, a garbage string entry, and another valid
-     * profile, and confirms both valid profiles come out the other side.
+     * One level up, in {@link VillagerProfileState}'s list codec: an unreadable profile must not
+     * sink every other profile. Decodes a raw NBT list of a valid profile, a garbage string and
+     * another valid profile, and expects both valid ones back.
      */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void oneCorruptProfileDoesNotSinkTheList(GameTestHelper helper) {

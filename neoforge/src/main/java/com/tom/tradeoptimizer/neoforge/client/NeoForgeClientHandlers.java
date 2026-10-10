@@ -9,8 +9,8 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
 /**
- * Client-only NeoForge hooks. Loaded lazily (only from the Dist.CLIENT branch of the mod
- * constructor / from the clientbound payload handler), so a dedicated server never touches it.
+ * Client-only NeoForge hooks, loaded lazily (from the Dist.CLIENT branch and the clientbound
+ * payload handler) so a dedicated server never touches it.
  */
 public final class NeoForgeClientHandlers {
     private NeoForgeClientHandlers() {}
@@ -22,8 +22,7 @@ public final class NeoForgeClientHandlers {
             if (event.getTarget() instanceof Villager v) {
                 ClientLastVillager.set(v.getUUID());
             } else {
-                // Wandering Trader / anything else: clear so the Reset button can't target a
-                // villager the player clicked earlier.
+                // Wandering Trader or anything else: Reset must not target an earlier villager.
                 ClientLastVillager.clear();
             }
         });

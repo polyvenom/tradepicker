@@ -26,7 +26,6 @@ public final class NeoForgePlatformHelper implements IPlatformHelper {
 
     @Override
     public void updateVillagerSpecialPrices(Villager villager, ServerPlayer player) {
-        // Same @Invoker mixin approach as Fabric (NeoForge also runs SpongePowered Mixin).
         ((VillagerInvoker) villager).tradeoptimizer$updateSpecialPrices(player);
     }
 

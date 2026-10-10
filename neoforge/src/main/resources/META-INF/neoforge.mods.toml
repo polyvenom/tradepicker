@@ -12,15 +12,13 @@ authors = "polyvenom"
 displayURL = "https://github.com/polyvenom/tradepicker"
 logoFile = "assets/tradeoptimizer/icon.png"
 
-# Mixins (annotation processor wired automatically by ModDevGradle). NeoForge runs on
-# Mojmaps so these need no refmap.
+# NeoForge runs on Mojmaps, so these mixins need no refmap.
 [[mixins]]
 config = "tradeoptimizer.mixins.json"
 
 [[mixins]]
 config = "tradeoptimizer.client.mixins.json"
 
-# 1.21.1 backport line: NeoForge 21.1.x LTS on MC 1.21/1.21.1 (the modpack target).
 [[dependencies.tradeoptimizer]]
 modId = "neoforge"
 type = "required"

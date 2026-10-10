@@ -24,9 +24,7 @@ import java.util.UUID;
  * that rank's trades, and then it must move as part of the same submit.
  *
  * VillagerLevelUpMixin cancels vanilla's increaseMerchantCareer for managed villagers, so nothing
- * else in the game will ever raise the rank. If the grant in onPickerSubmit regressed, a villager
- * would sit at its old rank forever with the player's picks piling up on a level it never reached
- * — so the "rank actually rises" assertion below is the load-bearing one.
+ * else raises the rank: the "rank actually rises" assertion below is the load-bearing one.
  */
 public class LevelUpHoldGameTest {
 
@@ -112,17 +110,13 @@ public class LevelUpHoldGameTest {
     /**
      * A rank with nothing to choose must still be granted.
      *
-     * When a rank's pool holds no more trades than the player must pick, there is nothing to
-     * choose, so the mod fills it automatically — and that path writes its picks directly rather
-     * than going through onPickerSubmit. It used to skip the level grant entirely, and because
-     * vanilla's own level-up is cancelled for managed villagers, nothing else would ever raise
-     * the rank: the villager stopped levelling for good. Reported against a max-level librarian,
-     * whose master rank is a single trade.
+     * When a rank's pool holds no more trades than the player must pick, the mod fills it
+     * automatically, writing picks directly rather than through onPickerSubmit. That path must
+     * still grant the level, since nothing else raises the rank (e.g. a librarian's single-trade
+     * master rank).
      *
-     * Farmer's master rank is the stable two-option pool here. Librarian's is a single trade in
-     * a normal game, which is where this was reported — but game tests always run with
-     * trade_rebalance on (see OwnershipGateGameTest), and that experiment rewrites librarian's
-     * trades. Farmer is one of the professions it doesn't touch.
+     * Farmer's master rank is the stable two-option pool here: game tests always run with
+     * trade_rebalance on (see OwnershipGateGameTest), which rewrites librarian's trades.
      */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void autoProgressedRankIsStillGranted(GameTestHelper helper) {
@@ -151,13 +145,10 @@ public class LevelUpHoldGameTest {
     }
 
     /**
-     * A villager left stuck by 1.5.0 must be rescued on its next right-click.
-     *
-     * 1.5.0's no-choice path saved the rank's picks but never granted the rank. So a player
-     * upgrading from it can have a villager in exactly this state: the rank's XP earned, its picks
-     * already stored, the rank itself never given. The picker treats a rank with stored picks as
-     * done, so without a rescue the villager would sit one rank short forever, with those picks
-     * never reaching its offer list (applyToVillager only walks levels up to the current rank).
+     * A villager with the rank's XP earned and picks stored, but the rank never granted (older
+     * saves), must be rescued on its next right-click. The picker treats a rank with stored picks
+     * as done, and applyToVillager only walks levels up to the current rank, so the villager
+     * would otherwise stay a rank short with those picks never reaching its offers.
      */
     @GameTest(structure = "fabric-gametest-api-v1:empty")
     public void villagerStuckByAnEarlierBuildIsRescued(GameTestHelper helper) {
@@ -233,8 +224,6 @@ public class LevelUpHoldGameTest {
 
         helper.succeed();
     }
-
-    // -------------------------------------------------------------------------
 
     private static Villager spawnFarmer(GameTestHelper helper, int villagerLevel) {
         ServerLevel level = helper.getLevel();

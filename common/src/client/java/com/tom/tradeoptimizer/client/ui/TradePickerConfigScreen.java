@@ -12,10 +12,8 @@ import net.minecraft.network.chat.Component;
 /**
  * Config screen for Trade Picker. Reachable from ModMenu (if installed).
  *
- * Note: the underlying config is server-authoritative (prices are computed
- * server-side). On singleplayer or a locally hosted server this screen edits
- * the config in place. On a remote dedicated server, the operator must edit
- * config/tradeoptimizer.json on the server directly.
+ * The config is server-authoritative: this screen edits it in singleplayer or on a locally
+ * hosted server; on a remote dedicated server, edit config/tradeoptimizer.json there.
  */
 public class TradePickerConfigScreen extends Screen {
 

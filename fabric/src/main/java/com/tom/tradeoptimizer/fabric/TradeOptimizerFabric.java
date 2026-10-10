@@ -16,13 +16,12 @@ public final class TradeOptimizerFabric implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        // Register payload types (incl. the registerLarge picker channel) before any receivers.
+        // Payload types must be registered before any receivers.
         FabricNetwork.registerPayloadTypes();
         ServerNetworkHandler.register();
         VillagerInteractionListener.register();
 
-        // Conversions (zombify / cure / lightning) replace the entity and mint a new
-        // UUID; re-key the profile so picks and ownership survive the round trip.
+        // Conversions mint a new UUID; re-key the profile so picks and ownership survive.
         ServerLivingEntityEvents.MOB_CONVERSION.register((previous, converted, params) ->
                 ProfileController.onMobConverted(previous, converted));
 

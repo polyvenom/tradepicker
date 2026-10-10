@@ -24,20 +24,11 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Regression net for the playtest bug "picker skipped on level-up / mystery villager with
- * unpicked trades and no profile".
- *
- * Root cause: vanilla's Mob.convertTo DISCARDS the converting entity and spawns a brand-new
- * one — the UUID is never copied (ConversionType.SINGLE copies position/effects/team only;
- * confirmed against the decompiled source). Profiles are keyed by villager UUID, so a
- * zombify→cure round trip used to orphan the profile: the cured villager kept its offers
- * (ZombieVillager.finishConversion copies those) but lost its picks/owner, and the next
- * right-click imported its own picked trades — plus any random vanilla level-up rolls — as
- * permanent "legacy" offers, never showing the picker again.
- *
- * The fix re-keys the profile on every conversion (Fabric MOB_CONVERSION
- * → ProfileController.onMobConverted), so this test drives the
- * exact vanilla conversion entry point (convertTo) rather than simulating it.
+ * A zombify-cure round trip must keep the villager's profile. Vanilla's Mob.convertTo discards
+ * the entity and never copies the UUID, and profiles are keyed by UUID, so without re-keying
+ * (Fabric MOB_CONVERSION -> ProfileController.onMobConverted) the cured villager keeps its
+ * offers but loses its picks and owner. This drives the real convertTo entry point rather than
+ * simulating it.
  */
 public class ConversionProfileGameTest {
 
@@ -55,8 +46,7 @@ public class ConversionProfileGameTest {
         VillagerProfileState state = VillagerProfileState.get(level);
         check(helper, state.get(originalId) != null, "profile should exist after submit");
 
-        // Zombify — the same convertTo call vanilla's Zombie.convertVillagerToZombieVillager
-        // makes. Produces a NEW entity with a NEW UUID.
+        // Zombify: the convertTo call vanilla's Zombie.convertVillagerToZombieVillager makes.
         ZombieVillager zombie = villager.convertTo(EntityType.ZOMBIE_VILLAGER,
                 ConversionParams.single(villager, true, true), zv -> {});
         check(helper, zombie != null, "zombify conversion should produce a zombie villager");
@@ -68,8 +58,7 @@ public class ConversionProfileGameTest {
         check(helper, state.get(zombie.getUUID()) != null,
                 "profile must follow onto the zombie villager (parked while zombified)");
 
-        // Cure — the same convertTo call ZombieVillager.finishConversion makes. Again a
-        // brand-new Villager with a brand-new UUID.
+        // Cure: the convertTo call ZombieVillager.finishConversion makes.
         Villager cured = zombie.convertTo(EntityType.VILLAGER,
                 ConversionParams.single(zombie, true, true), v -> {});
         check(helper, cured != null, "cure conversion should produce a villager");

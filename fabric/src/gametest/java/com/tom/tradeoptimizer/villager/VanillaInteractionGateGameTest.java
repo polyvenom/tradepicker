@@ -21,12 +21,9 @@ import net.minecraft.world.item.Items;
  * {@link ProfileController#isVanillaItemInteraction}).
  *
  * The rule has to match Mob.checkAndHandleImportantInteractions exactly. Too narrow and villagers
- * can't be named (the CurseForge report that prompted this); too wide and the click falls through
- * to vanilla's own merchant screen, which must never be reachable — the picker owns this
- * villager's trades and vanilla's random rolls would compete with them.
- *
- * The two easy-to-miss cases are the unnamed name tag and the wrong-mob spawn egg: vanilla does
- * nothing for either and drops straight into the trade screen, so neither may pass.
+ * can't be named; too wide and the click falls through to vanilla's merchant screen, whose random
+ * rolls would compete with the picker's trades. The easy-to-miss cases are the unnamed name tag
+ * and the wrong-mob spawn egg: vanilla drops straight into the trade screen for both.
  */
 public class VanillaInteractionGateGameTest {
 
@@ -76,8 +73,6 @@ public class VanillaInteractionGateGameTest {
 
         helper.succeed();
     }
-
-    // -------------------------------------------------------------------------
 
     /** An ordinary empty-hand click on a working adult villager is ours: it opens the picker. */
     @GameTest(structure = "fabric-gametest-api-v1:empty")

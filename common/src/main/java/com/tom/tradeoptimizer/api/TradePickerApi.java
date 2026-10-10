@@ -7,9 +7,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Stable extension surface for Trade Picker add-ons.
  *
  * Loader-agnostic by design: plain statics in the shared {@code common} module, no platform or
- * networking types in the signatures, so a Fabric or NeoForge add-on registers the same way. The
- * base mod ships this whether or not any add-on is present; with no handlers registered every method
- * here is inert and the picker behaves exactly as before.
+ * networking types in the signatures, so a Fabric or NeoForge add-on registers the same way.
+ * With no handlers registered the picker is unaffected.
  */
 public final class TradePickerApi {
     private TradePickerApi() {}

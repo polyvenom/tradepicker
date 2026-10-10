@@ -19,10 +19,9 @@ public interface IPlatformHelper {
     boolean isModLoaded(String modId);
 
     /**
-     * Replace the villager's live offer list. 1.21.1 has NO public setter: the vanilla
-     * {@code AbstractVillager.overrideOffers} is an empty no-op stub there (verified from the
-     * mapped bytecode — silently does nothing), so each loader writes the protected
-     * {@code offers} field directly via an @Accessor mixin.
+     * Replace the villager's live offer list. Vanilla's {@code AbstractVillager.overrideOffers} is
+     * an empty no-op stub, so each loader writes the protected {@code offers} field via an
+     * @Accessor mixin.
      */
     void setVillagerOffers(Villager villager, MerchantOffers offers);
 }
