@@ -14,24 +14,20 @@ public final class TradeOptimizerClient implements ClientModInitializer {
     public void onInitializeClient() {
         ClientNetworkHandler.register();
 
-        // Remember which villager the player just clicked on, so the Reset button in
-        // the merchant screen knows which UUID to ask the server to reset.
+        // Remember the clicked villager for the Reset button.
         UseEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
             if (level.isClientSide()) {
                 if (entity instanceof Villager v) {
                     ClientLastVillager.set(v.getUUID());
                 } else {
-                    // Wandering Trader (or anything else): if a merchant screen opens, it
-                    // isn't a villager's, so clear the Reset button's target so it can't
-                    // fire on a villager the player clicked earlier.
+                    // Wandering Trader or anything else: clear the Reset target.
                     ClientLastVillager.clear();
                 }
             }
             return InteractionResult.PASS;
         });
 
-        // A villager from another world or server is never the one a merchant screen belongs to.
-        // Clearing only on clicks left the old UUID live across a disconnect or world change (#18).
+        // A villager from another world or server never owns a merchant screen (#18).
         ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> ClientLastVillager.clear());
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientLastVillager.clear());
     }

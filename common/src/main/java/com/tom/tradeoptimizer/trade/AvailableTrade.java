@@ -5,9 +5,8 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.world.item.trading.MerchantOffer;
 
 /**
- * One trade option as shown in the picker grid: its identifying key + a preview
- * MerchantOffer at min cost so the client can display "what you'd give -> what
- * you'd get" without needing the registry on the client side.
+ * One trade option in the picker grid: its key plus a min-cost preview MerchantOffer, so the
+ * client can display it without the trade registry.
  */
 public record AvailableTrade(TradeKey key, MerchantOffer previewOffer) {
 

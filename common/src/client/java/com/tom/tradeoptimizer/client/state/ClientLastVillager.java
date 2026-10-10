@@ -3,14 +3,9 @@ package com.tom.tradeoptimizer.client.state;
 import java.util.UUID;
 
 /**
- * Tracks the last merchant the player right-clicked, so the Reset button in
- * MerchantScreenMixin knows (a) which villager the open trade screen belongs to and
- * (b) whether that merchant is even a villager. Vanilla's MerchantMenu doesn't expose
- * either fact directly.
- *
- * Wandering Traders share the same MerchantScreen but aren't resettable by this mod —
- * tracking villager-ness here keeps the Reset button (and the reset packet) from firing
- * on a previously-clicked villager while a Wandering Trader's screen is open.
+ * The last merchant the player right-clicked, so MerchantScreenMixin's Reset button knows which
+ * villager the open trade screen belongs to and whether it is a villager at all (vanilla's
+ * MerchantMenu exposes neither). Wandering Traders share the screen but aren't resettable.
  */
 public final class ClientLastVillager {
     private ClientLastVillager() {}
@@ -24,11 +19,7 @@ public final class ClientLastVillager {
         lastWasVillager = true;
     }
 
-    /**
-     * Record that the player just clicked something that isn't a villager (e.g. a
-     * Wandering Trader). Drops the stale UUID and flag so the Reset button stays hidden
-     * and can't reset a villager the player clicked earlier.
-     */
+    /** Record a click on a non-villager (e.g. a Wandering Trader), dropping the stale UUID. */
     public static void clear() {
         lastUuid = null;
         lastWasVillager = false;

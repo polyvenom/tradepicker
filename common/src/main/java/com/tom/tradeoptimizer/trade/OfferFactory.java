@@ -50,15 +50,13 @@ import java.util.function.Predicate;
 
 /**
  * Enumerate the trade pool for a (profession, level) pair and produce min-cost
- * MerchantOffers. Book trades expand into one card per (enchantment × level) so
- * the player can pick Sharpness V at min cost, not just Sharpness I.
+ * MerchantOffers. Book trades expand into one card per (enchantment × level).
  *
- * LootContext mirrors vanilla's exactly (matches AbstractVillager.addOffersFromTradeSet).
- * For book trades we feed vanilla's enchant_randomly an IndexBiasedRandomSource that
- * steers the enchantment + level rolls to the specific combination we want, with all
- * other random rolls (cost variance) pinned at 0.
+ * The LootContext mirrors vanilla's (AbstractVillager.addOffersFromTradeSet). For book trades
+ * vanilla's enchant_randomly gets an IndexBiasedRandomSource that steers the enchantment + level
+ * rolls to the wanted combination, with other rolls (cost variance) pinned at 0.
  *
- * Synthetic TradeKey: tradeoptimizer:book/<ench_ns>/<ench_path>/L<level>
+ * Synthetic book key: tradeoptimizer:book/<level>/<ench_ns>/<ench_path>
  */
 public final class OfferFactory {
     private OfferFactory() {}
@@ -105,10 +103,8 @@ public final class OfferFactory {
                     if (stews.isEmpty()) out.add(new AvailableTrade(flatKey, preview));
                     else out.addAll(stews);
                 } else if (!result.getEnchantments().isEmpty()) {
-                    // Enchanted gear (sword, bow, armor, tool, rod): vanilla rolls a random enchantment
-                    // via the enchanting-table algorithm, so the picker only ever saw ONE card. Expand it
-                    // into player-choosable cards (issues #4 / #5). Falls back to the single vanilla-rolled
-                    // card if expansion can't run (e.g. the on_traded_equipment tag is missing).
+                    // Enchanted gear: expand the vanilla-rolled enchantment into choosable cards (#4 / #5);
+                    // falls back to the single card if expansion can't run (e.g. tag missing).
                     List<AvailableTrade> gear = expandGearTrade(level, villager, preview, registries);
                     if (gear.isEmpty()) out.add(new AvailableTrade(flatKey, preview));
                     else out.addAll(gear);
@@ -127,11 +123,9 @@ public final class OfferFactory {
     }
 
     /**
-     * How many enchanted-book trade TEMPLATES the (profession, level) trade set contains. Vanilla
-     * grants at most this many book trades at that level — each template yields a single book trade —
-     * so the picker uses it as the per-level book cap when {@code vanillaBookLimits} is on. This
-     * counts the raw templates, NOT the per-(enchantment × level) cards {@link #enumerate} expands
-     * each book template into.
+     * How many enchanted-book trade templates the (profession, level) trade set contains: vanilla
+     * grants at most this many book trades at that level (the {@code vanillaBookLimits} cap). Counts
+     * raw templates, not the cards {@link #enumerate} expands them into.
      */
     public static int countBookTemplates(ServerLevel level, Villager villager, ResourceKey<TradeSet> tradeSetKey) {
         Optional<TradeSet> setOpt = tradeSet(level.registryAccess(), tradeSetKey);
@@ -147,7 +141,7 @@ public final class OfferFactory {
                 MerchantOffer preview = previewOf(level, villager, tradeSet, holder.value(), flatKey);
                 if (preview != null && preview.getResult().is(Items.ENCHANTED_BOOK)) count++;
             } catch (Exception e) {
-                // Skip — same templates enumerate() would skip; not a book slot we can offer.
+                // Skipped by enumerate() too.
             }
         }
         return count;
@@ -219,13 +213,11 @@ public final class OfferFactory {
     /**
      * The enchantments a book template can roll, in the order its own random pick indexes them.
      *
-     * Read from the template rather than assumed (issue #16). Vanilla's template draws from
-     * #minecraft:tradeable, but a datapack's — e.g. Trade Rebalance's biome librarians — draws from
-     * its own list. Steering by the tag's index into a different list labelled cards with one
-     * enchantment while they sold another, and indices past the end clamped onto the last entry.
+     * Read from the template, not assumed (#16): vanilla draws from #minecraft:tradeable but a
+     * datapack's (e.g. Trade Rebalance's biome librarians) draws from its own list.
      *
-     * Probed by steering the pick to index 0, 1, 2... and reading back what was rolled. An index
-     * past the end clamps to the last entry, so a repeat marks the end of the list.
+     * Probed by steering the pick to index 0, 1, 2... and reading back the roll. An index past the
+     * end clamps to the last entry, so a repeat marks the end of the list.
      */
     private static List<Holder<Enchantment>> bookPool(ServerLevel level, Villager villager,
                                                       TradeSet tradeSet, VillagerTrade template) {
@@ -248,9 +240,9 @@ public final class OfferFactory {
     /**
      * Steers a book template to {@code ench} at {@code lvl}: the pool index, then the level offset.
      *
-     * The level slot is only there when the enchantment has more than one level. Minecraft's level
-     * roll (Mth.nextInt(min, max)) draws nothing when min == max, so for Mending, Silk Touch and the
-     * curses a second slot was eaten by the price roll instead, pinning it to the minimum (#15).
+     * The level slot exists only when the enchantment has more than one level: Mth.nextInt(min, max)
+     * draws nothing when min == max, so for Mending, Silk Touch and curses a second slot would be
+     * eaten by the price roll (#15).
      */
     private static IndexBiasedRandomSource bookSource(RandomSource costFallback, int enchIdx,
                                                       Holder<Enchantment> ench, int lvl) {
@@ -267,7 +259,7 @@ public final class OfferFactory {
         return stored.size() == 1 ? stored.keySet().iterator().next() : null;
     }
 
-    /** Does this offer sell exactly {@code ench} at {@code lvl}? Cards must sell what they say. */
+    /** Does this offer sell exactly {@code ench} at {@code lvl}? */
     private static boolean sells(MerchantOffer offer, Holder<Enchantment> ench, int lvl) {
         ItemStack book = offer.getResult();
         return ench.equals(storedEnchantment(book))
@@ -282,8 +274,7 @@ public final class OfferFactory {
     private static final int MAX_STEW_POOL = 64;
 
     /**
-     * The effects a stew template can roll, in the order its own random pick indexes them. Probed like
-     * {@link #bookPool}: steer the pick to 0, 1, 2... and read back the effect; a repeat marks the end.
+     * The effects a stew template can roll, in pick-index order. Probed like {@link #bookPool}.
      */
     private static List<Holder<MobEffect>> stewPool(ServerLevel level, Villager villager,
                                                     TradeSet tradeSet, VillagerTrade template) {
@@ -332,7 +323,7 @@ public final class OfferFactory {
                 MerchantOffer offer = stewOffer(level, villager, tradeSet, template, key, i, pool.get(i));
                 if (offer != null) out.add(new AvailableTrade(key, offer));
             } catch (Exception e) {
-                // Skip on failure, like books.
+                // Skip on failure.
             }
         }
         // A lone surviving card would hide the other effects; fall back to the flat card.
@@ -375,11 +366,7 @@ public final class OfferFactory {
     /** One enchantment + level, used to total a scaled price. */
     private record EnchPick(Holder<Enchantment> ench, int level) {}
 
-    /**
-     * Cost/shape carried over from the vanilla gear (or tipped-arrow) trade template: everything about
-     * the offer EXCEPT the enchantment/potion, which we choose. Lets a hand-built offer keep vanilla's
-     * emerald cost, secondary cost, stock, XP and price multiplier.
-     */
+    /** Everything about a vanilla gear (or tipped-arrow) template except the enchantment/potion we choose. */
     private record GearTemplateInfo(ItemCost costA, Optional<ItemCost> costB, int count,
                                     int maxUses, int xp, float priceMultiplier) {
         static GearTemplateInfo from(MerchantOffer o) {
@@ -401,9 +388,8 @@ public final class OfferFactory {
         String profId = professionId(villager);
         ItemStack base = new ItemStack(item, tmpl.count());
 
-        // What enchantments (and at what max level) vanilla can actually roll on this item, derived from
-        // vanilla's own getAvailableEnchantmentResults across the villager modified-level range. Stays
-        // exactly within the vanilla pool, so we never offer something a vanilla trade couldn't produce.
+        // Enchantments (and max level) vanilla can actually roll on this item, so we never offer
+        // something a vanilla trade couldn't produce.
         Map<Holder<Enchantment>, Integer> reachable = reachableGearEnchants(base, pool);
         if (reachable.isEmpty()) return out;
 
@@ -428,9 +414,8 @@ public final class OfferFactory {
                     if (offer != null) out.add(new AvailableTrade(key, offer));
                 }
             } else {
-                // HEADLINE: one card per enchantment. The level + any bonus enchantments are rolled by
-                // vanilla, deterministically per villager, so the preview card shows exactly what the
-                // trade will grant.
+                // HEADLINE: one card per enchantment; level and bonus enchantments are rolled by vanilla,
+                // deterministically per villager, so the card shows what the trade grants.
                 TradeKey key = gearHeadlineKey(itemId, enchId);
                 MerchantOffer offer = buildGearOffer(level, villager, tmpl, item, profId,
                         GearEnchantMode.HEADLINE, ench, 1, registries, key, pool);
@@ -441,10 +426,8 @@ public final class OfferFactory {
     }
 
     /**
-     * Every (enchantment → max level) vanilla can roll on {@code base} via the enchanting-table
-     * algorithm at villager tier. Walks the modified-level range vanilla's roll can land in and asks
-     * vanilla's own {@link EnchantmentHelper#getAvailableEnchantmentResults} which enchantments are
-     * eligible at each step — so the set is exactly what a vanilla trade could produce, no more.
+     * Every (enchantment → max level) vanilla can roll on {@code base} at villager tier: walks the
+     * modified-level range and asks {@link EnchantmentHelper#getAvailableEnchantmentResults}.
      */
     private static Map<Holder<Enchantment>, Integer> reachableGearEnchants(ItemStack base, HolderSet<Enchantment> pool) {
         Map<Holder<Enchantment>, Integer> max = new LinkedHashMap<>();
@@ -471,9 +454,9 @@ public final class OfferFactory {
     }
 
     /**
-     * Build one enchanted-gear offer by hand. SINGLE applies exactly the chosen enchantment + level.
-     * HEADLINE replays vanilla's enchant roll (seeded per villager + trade so preview == apply), forcing
-     * the chosen enchantment to be present and letting vanilla decide its level + any bonus enchantments.
+     * Build one enchanted-gear offer. SINGLE applies exactly the chosen enchantment + level.
+     * HEADLINE replays vanilla's enchant roll (seeded per villager + trade so preview == apply) with
+     * the chosen enchantment forced in.
      */
     private static MerchantOffer buildGearOffer(ServerLevel level, Villager villager, GearTemplateInfo tmpl,
                                                 Item item, String profId, GearEnchantMode mode,
@@ -501,10 +484,9 @@ public final class OfferFactory {
     }
 
     /**
-     * Roll an enchanted item the vanilla way but guarantee {@code headline} ends up on it. Retries
-     * vanilla's {@link EnchantmentHelper#enchantItem} with a deterministic seed sequence until the
-     * headline enchantment appears; if it never does (rare, low-weight pairing) it force-applies the
-     * headline alone. Deterministic per seed, so the picker preview and the granted offer always match.
+     * Roll an enchanted item the vanilla way but guarantee {@code headline} is on it: retries
+     * {@link EnchantmentHelper#enchantItem} over a deterministic seed sequence, then falls back to
+     * applying the headline alone.
      */
     private static ItemStack rollHeadline(ServerLevel level, ItemStack base, Holder<Enchantment> headline,
                                           long seed, HolderSet<Enchantment> pool) {
@@ -545,9 +527,8 @@ public final class OfferFactory {
     }
 
     /**
-     * Cost for a tipped arrow when the fletcher has cost scaling enabled. Arrows carry no
-     * enchantments, so the gear formula has nothing to weigh — scale on potion strength
-     * instead: the base fee plus one emerald per effect and one more per amplifier step.
+     * Cost for a tipped arrow with cost scaling on. Arrows have no enchantments, so scale on potion
+     * strength: base fee plus one emerald per effect and one per amplifier step.
      */
     private static ItemCost scaledArrowCost(Potion potion) {
         int total = 2;
@@ -568,7 +549,7 @@ public final class OfferFactory {
         GearTemplateInfo tmpl = GearTemplateInfo.from(templatePreview);
         registries.lookupOrThrow(Registries.POTION).listElements().forEach(h -> {
             Potion p = h.value();
-            if (p.getEffects().isEmpty()) return; // skip water / mundane / awkward / thick (no effect)
+            if (p.getEffects().isEmpty()) return; // water, mundane, awkward, thick
             Optional<ResourceKey<Potion>> pk = h.unwrapKey();
             if (pk.isEmpty()) return;
             TradeKey key = arrowKey(pk.get().identifier());
@@ -657,9 +638,8 @@ public final class OfferFactory {
     }
 
     /**
-     * Find a vanilla trade template across this villager's levels whose min-cost preview matches the
-     * given predicate, returning its cost/shape. Mirrors the book-regen level scan: the pick's own level
-     * first, then every level — so a pick still regenerates even after the villager advanced past it.
+     * Find a vanilla trade template whose preview matches {@code match}, scanning the pick's own
+     * level first, then every level, so a pick still regenerates after the villager advanced past it.
      */
     private static GearTemplateInfo findTemplate(ServerLevel level, Villager villager, int merchantLevel,
                                                  Predicate<MerchantOffer> match) {
@@ -680,7 +660,7 @@ public final class OfferFactory {
                     MerchantOffer preview = previewOf(level, villager, tradeSet, holder.value(), fk);
                     if (preview != null && match.test(preview)) return GearTemplateInfo.from(preview);
                 } catch (Exception e) {
-                    // skip — same templates enumerate() would skip
+                    // skipped by enumerate() too
                 }
             }
         }
@@ -726,10 +706,7 @@ public final class OfferFactory {
                 && key.id().getPath().startsWith(ARROW_PREFIX);
     }
 
-    /**
-     * For a HEADLINE gear key, the enchantment the player chose (the rest of the rolled enchantments are
-     * vanilla bonuses). Empty for SINGLE / non-gear keys. Used by the picker UI to label the card.
-     */
+    /** For a HEADLINE gear key, the enchantment the player chose (the rest are vanilla bonuses); else empty. */
     public static Optional<Identifier> headlineEnchantId(TradeKey key) {
         if (!isGearKey(key)) return Optional.empty();
         GearKey gk = parseGearKey(key);
@@ -878,14 +855,9 @@ public final class OfferFactory {
         HolderLookup.Provider registries = level.registryAccess();
         VillagerProfession prof = villager.getVillagerData().profession().value();
 
-        // A book trade must be regenerated from a book-producing template. That template
-        // has to come from a trade set that actually CONTAINS a book trade. The book was
-        // picked at `merchantLevel`, so that set is the natural source — but a villager
-        // may have advanced to a higher level whose set has NO book trade (e.g. a
-        // librarian's master level sells candles, not books). Earlier this looked up the
-        // villager's CURRENT level, so once it hit such a level every previously-picked
-        // book silently failed to regenerate and got dropped. Try the pick's own level
-        // first, then fall back to scanning every level for a usable book template.
+        // Try the pick's own level first, then every level: a villager may have advanced to a level
+        // whose set has no book trade (a librarian's master level sells candles), and the pick must
+        // still regenerate.
         for (int lvl : candidateLevels(merchantLevel)) {
             ResourceKey<TradeSet> tradeSetKey = prof.getTrades(lvl);
             if (tradeSetKey == null) continue;
@@ -897,8 +869,7 @@ public final class OfferFactory {
                 String tradeName = holder.unwrapKey().map(k -> k.identifier().toString()).orElse("?");
                 try {
                     VillagerTrade trade = holder.value();
-                    // Steer by THIS template's own list (#16). A template that can't roll the
-                    // enchantment, or isn't a book template at all, yields an empty pool or no match.
+                    // Steer by this template's own list (#16); a non-book template yields no match.
                     List<Holder<Enchantment>> pool = bookPool(level, villager, tradeSet, trade);
                     int enchIdx = -1;
                     for (int i = 0; i < pool.size() && enchIdx < 0; i++) {
@@ -908,9 +879,8 @@ public final class OfferFactory {
                     }
                     if (enchIdx < 0) continue;
                     Holder<Enchantment> ench = pool.get(enchIdx);
-                    // A fresh seeded stream per attempt: one shared across templates let rolls burnt by
-                    // earlier attempts shift the price the real one read, so the villager charged a
-                    // different price from the card (#15).
+                    // A fresh seeded stream per attempt: a shared one lets earlier attempts' rolls shift
+                    // the price, so the villager would charge a different price from the card (#15).
                     LootContext ctx = buildContext(level, villager, tradeSet,
                             bookSource(bookCostFallback(villager, synthetic), enchIdx, ench, parsed.level));
                     MerchantOffer offer = trade.getOffer(ctx);
@@ -937,8 +907,7 @@ public final class OfferFactory {
         HolderLookup.Provider registries = level.registryAccess();
         VillagerProfession prof = villager.getVillagerData().profession().value();
 
-        // Same level scan as books: the pick's own level first, then every level, so a stew still
-        // regenerates after the villager advanced past the farmer level that sold it.
+        // Same level scan as books.
         for (int lvl : candidateLevels(merchantLevel)) {
             ResourceKey<TradeSet> tradeSetKey = prof.getTrades(lvl);
             if (tradeSetKey == null) continue;
@@ -975,7 +944,6 @@ public final class OfferFactory {
     // Synthetic key encoding + tag helpers
     // -------------------------------------------------------------------------
 
-    // Package-private (not private) so BookKeyFormatGameTest can round-trip the key encoding.
     record SyntheticBookKey(Identifier enchantmentId, int level) {}
 
     public static boolean isBookKey(TradeKey key) {
@@ -983,36 +951,25 @@ public final class OfferFactory {
                 && key.id().getPath().startsWith(BOOK_PREFIX);
     }
 
-    // Package-private (not private) so BookKeyFormatGameTest can verify the written format.
     static TradeKey buildSyntheticBookKey(Identifier enchantId, int level) {
-        // Level-first, all-lowercase form: book/<level>/<ench_ns>/<ench_path>. The level leads so
-        // parsing stays unambiguous even though <ench_path> may contain slashes, and every
-        // character is a valid Identifier path char. The old form put the level last as an
-        // uppercase "L<level>" marker — which strict Identifier validation rejects (headless tests,
-        // and potentially other loaders), so it only ever worked thanks to the live game being
-        // lenient. parseSyntheticBook still reads the old form for pre-migration saves.
+        // book/<level>/<ench_ns>/<ench_path>: the level leads so parsing is unambiguous even though
+        // <ench_path> may contain slashes, and all characters are valid Identifier path chars.
         String path = BOOK_PREFIX + level + "/" + enchantId.getNamespace() + "/" + enchantId.getPath();
         return new TradeKey(Identifier.fromNamespaceAndPath(TradeOptimizer.MOD_ID, path));
     }
 
-    // Package-private (not private) so BookKeyFormatGameTest can round-trip the key encoding.
     static SyntheticBookKey parseSyntheticBook(TradeKey key) {
-        // NEW format (current):  book/<level>/<ench_ns>/<ench_path>   — level-first, all lowercase.
-        // OLD format (pre-migration saves):  book/<ench_ns>/<ench_path>/L<level>   — uppercase 'L'
-        //   marker. Still read so existing villagers keep their book picks.
-        // LEGACY format:  book/<ench_ns>/<ench_path>   (no level marker) — pre-dates per-level
-        //   expansion; treated as level 1.
-        // <ench_path> may itself contain '/', because modded enchantments are allowed slashes in
-        // their path — so we can't assume a fixed segment count.
+        // Current:  book/<level>/<ench_ns>/<ench_path>
+        // Older saves, still read so existing picks survive:
+        //   book/<ench_ns>/<ench_path>/L<level>, and book/<ench_ns>/<ench_path> (level 1).
+        // <ench_path> may contain '/' (modded enchantments), so the segment count isn't fixed.
         String path = key.id().getPath();
         if (!path.startsWith(BOOK_PREFIX)) return null;
 
         String[] parts = path.substring(BOOK_PREFIX.length()).split("/");
         if (parts.length < 2) return null; // need at least <ns> and one path segment
 
-        // NEW format first: a purely-numeric leading segment is the level. Real enchantment
-        // namespaces are never purely numeric, so this can't be mistaken for the OLD/legacy forms
-        // below (whose leading segment is the namespace).
+        // A purely-numeric leading segment is the level; namespaces are never purely numeric.
         if (parts.length >= 3 && isAllDigits(parts[0])) {
             int newLevel;
             try {
@@ -1040,8 +997,7 @@ public final class OfferFactory {
         int level = 1;
         int pathEndExclusive = parts.length;
         String last = parts[lastIdx];
-        // A trailing "L<number>" segment is the level marker — only when there's a real
-        // path segment before it (lastIdx >= 2), so a 2-part legacy key isn't misread.
+        // A trailing "L<number>" is the level marker, only with a real path segment before it.
         if (lastIdx >= 2 && last.length() > 1 && last.charAt(0) == 'L') {
             try {
                 level = Integer.parseInt(last.substring(1));
@@ -1079,8 +1035,7 @@ public final class OfferFactory {
     // -------------------------------------------------------------------------
 
     /**
-     * Stable per-(villager, trade) seed. Hashing the TradeKey's string id keeps the value
-     * identical between the picker preview and the eventual apply, and across re-opens — so a
+     * Stable per-(villager, trade) seed: identical between preview, apply and re-opens, so a
      * randomized price can't be re-rolled by reopening the menu.
      */
     private static long priceSeed(Villager villager, TradeKey key) {
@@ -1095,9 +1050,8 @@ public final class OfferFactory {
     }
 
     /**
-     * Cost fallback handed to {@link IndexBiasedRandomSource} for book trades. Returns null in
-     * min-price mode (so cost rolls pin to 0), or a seeded source when vanilla pricing is on —
-     * the steered enchantment/level prefix is honored either way.
+     * Cost fallback for {@link IndexBiasedRandomSource} on book trades: null in min-price mode
+     * (cost rolls pin to 0), a seeded source with vanilla pricing.
      */
     private static RandomSource bookCostFallback(Villager villager, TradeKey key) {
         return TradeOptimizerConfig.get().vanillaPricing()

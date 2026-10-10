@@ -1,9 +1,8 @@
-// Multi-loader root project. This is a pure aggregator — no Minecraft source and no
-// loader/build plugin (Loom, ModDevGradle) is applied here. Each loader and the shared
-// logic module is its own subproject, declared in settings.gradle:
+// Multi-loader root project: a pure aggregator with no Minecraft source or build plugin.
+// Subprojects (declared in settings.gradle):
 //
 //   :common   — loader-agnostic logic, compiled against Mojmapped Minecraft (ModDevGradle / NeoForm)
-//   :fabric   — Fabric Loom (build logic unchanged from the original single-module project)
+//   :fabric   — Fabric Loom
 //   :neoforge — ModDevGradle (NeoForge)
 //
-// Shared versions live in gradle.properties (visible to every subproject).
+// Shared versions live in gradle.properties.

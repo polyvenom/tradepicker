@@ -27,26 +27,21 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Regression net for reputation pricing (the "reputation doesn't work" CurseForge report).
+ * Guards reputation pricing. The mod opens the merchant manually, so ProfileController.openMerchant
+ * re-invokes Villager.updateSpecialPrices(player) (writing -floor(reputation × priceMultiplier)
+ * into each offer's specialPriceDiff) on every open. Two failure modes:
  *
- * The mod opens the merchant manually instead of vanilla's startTrading, so vanilla's
- * discount pass — Villager.updateSpecialPrices(player), which writes
- * -floor(reputation × priceMultiplier) into each offer's specialPriceDiff — is re-invoked
- * by ProfileController.openMerchant on every open. Two failure modes are pinned here:
+ *   1. Wipe-on-reopen: the client sends two interact packets per right-click, and the second
+ *      run's stale-menu teardown calls setTradingPlayer(null) -> resetSpecialPrices(), destroying
+ *      any discount refreshed before it. The refresh must happen inside openMerchant, after the
+ *      teardown. Re-opening here deliberately doesn't close the previous menu (mock players never
+ *      send close packets), reproducing the double-fire's stale-menu state.
  *
- *   1. WIPE-ON-REOPEN (the shipped bug): the vanilla client sends two interact packets
- *      per right-click, so the open path runs twice per click. The second run's stale-menu
- *      teardown fires villager.setTradingPlayer(null) → resetSpecialPrices(), and a
- *      discount refresh done BEFORE that teardown is destroyed — the menu the player sees
- *      shows full prices. Fixed by refreshing INSIDE openMerchant, after the teardown.
- *      Re-opening here deliberately does NOT close the previous menu (mock players never
- *      send close packets), which reproduces the double-fire's stale-menu state exactly.
+ *   2. Stacking: updateSpecialPrices accumulates, so without the reset before apply in
+ *      refreshSpecialPrices, re-opens would compound the discount.
  *
- *   2. STACKING: updateSpecialPrices accumulates, so if the reset-before-apply inside
- *      refreshSpecialPrices is ever dropped, re-opens compound the discount.
- *
- * Farmer is used for its flat, biome-independent trades, and because trade_rebalance — always
- * on in game tests, see OwnershipGateGameTest — overrides only armorer and librarian.
+ * Farmer is used for its flat trades, and because trade_rebalance (always on in game tests, see
+ * OwnershipGateGameTest) overrides only armorer and librarian.
  */
 public class ReputationPricingGameTest {
 
@@ -57,7 +52,7 @@ public class ReputationPricingGameTest {
         UUID villagerId = villager.getUUID();
         ServerPlayer player = TestPlayers.near(helper);
 
-        // 1) Pick two level-1 trades — builds the live offers through the real entry point.
+        // 1) Pick two level-1 trades, building the live offers.
         List<TradeKey> picks = firstTwoPicks(level, villager, helper);
         ProfileController.onPickerSubmit(player, villagerId, 1, picks);
 
@@ -65,22 +60,21 @@ public class ReputationPricingGameTest {
         helper.assertTrue(offers != null && offers.size() >= 2,
                 "expected the two picked level-1 offers after submit");
 
-        // No reputation yet — the refresh ran but must have written no discount.
+        // No reputation yet: no discount.
         for (MerchantOffer offer : offers) {
             helper.assertTrue(offer.getSpecialPriceDiff() == 0,
                     "no-reputation player should see specialPriceDiff 0 (got "
                             + offer.getSpecialPriceDiff() + ")");
         }
 
-        // 2) Give the player curing-grade reputation the same way vanilla does (gossip).
+        // 2) Give the player reputation via gossip, as vanilla does.
         villager.getGossips().add(player.getUUID(), GossipType.MAJOR_POSITIVE, 20);
         int reputation = villager.getPlayerReputation(player);
         helper.assertTrue(reputation > 0,
                 "gossip should yield positive reputation (got " + reputation + ")");
 
-        // Re-open WITHOUT closing the previous menu — the wipe-on-reopen repro. The stale
-        // MerchantMenu's teardown resets special prices mid-open; the discount must be
-        // written after that, or the offers sent to the client carry diff 0.
+        // Re-open without closing the previous menu. Its teardown resets special prices mid-open,
+        // so the discount must be written after that or the client's offers carry diff 0.
         MerchantAccess.open(player, villager);
 
         offers = villager.getOffers();
@@ -97,8 +91,7 @@ public class ReputationPricingGameTest {
         helper.assertTrue(anyDiscount,
                 "at least one picked farmer offer should carry a visible reputation discount");
 
-        // 3) Two more no-close re-opens: the diff must hold steady, not stack — and a
-        //    properly closed session must come back discounted too.
+        // 3) Two more no-close re-opens must not stack the diff, and a clean close/reopen must restore it.
         List<Integer> before = diffs(offers);
         MerchantAccess.open(player, villager);
         MerchantAccess.open(player, villager);
@@ -115,10 +108,8 @@ public class ReputationPricingGameTest {
     }
 
     /**
-     * Discounts are per-player state on shared offers: after a reputable player's open wrote
-     * discounts, an op (bypasses the ownership gate) with no reputation re-opens the SAME
-     * villager and every diff must return to zero — the previous player's discount must not
-     * leak. This mirrors two players trading with one villager in sequence.
+     * Discounts are per-player state on shared offers: after a reputable player's open, a
+     * reputation-less op re-opening the same villager must see every diff back at zero.
      */
     @GameTest
     public void discountDoesNotLeakToReputationlessPlayer(GameTestHelper helper) {
@@ -138,9 +129,7 @@ public class ReputationPricingGameTest {
         }
         helper.assertTrue(anyDiscount, "precondition: the reputable owner should have a discount");
 
-        // A second, reputation-less player opens the same villager. Ops bypass the ownership
-        // gate on onPickerSubmit, so promote the mock player the same way OwnershipGateGameTest
-        // does — through the real op list.
+        // A second, reputation-less player, made an op as in OwnershipGateGameTest.
         ServerPlayer stranger = TestPlayers.near(helper);
         level.getServer().getPlayerList().op(stranger.nameAndId(),
                 Optional.of(LevelBasedPermissionSet.OWNER), Optional.empty());
