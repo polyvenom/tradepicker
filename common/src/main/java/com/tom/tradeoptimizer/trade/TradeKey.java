@@ -9,8 +9,8 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.trading.VillagerTrade;
 
 /**
- * Identifies one specific vanilla VillagerTrade (e.g. FARMER_1_WHEAT_EMERALD) by its
- * registry resource ID. Used as the player's choice payload in the picker.
+ * Identifies one VillagerTrade by registry id, or a synthetic expanded card (book, gear, arrow,
+ * stew, dye; see OfferFactory). This is the player's choice payload in the picker.
  */
 public record TradeKey(Identifier id) {
 

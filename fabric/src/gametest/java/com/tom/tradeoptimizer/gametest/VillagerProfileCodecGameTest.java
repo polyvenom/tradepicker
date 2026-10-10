@@ -26,13 +26,12 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Guards that {@link VillagerProfile#CODEC} round-trips losslessly — the property every saved
- * world depends on. If this breaks, players' picked trades and ownership silently vanish on
- * reload, so it's a high-value guard to lock in before the multi-loader port reshapes anything.
+ * Guards that {@link VillagerProfile#CODEC} round-trips losslessly; if it breaks, picks and
+ * ownership vanish on reload.
  *
- * Encodes through a real registry serialization context (NBT), because the {@code legacy} lane
- * holds {@link MerchantOffer}s whose codec needs registry access. Covers the optional {@code
- * owner} field (present AND absent) and the int-keyed {@code picks} / {@code legacy} maps.
+ * Encodes through a real registry serialization context (NBT), since {@link MerchantOffer}'s
+ * codec needs registry access. Covers the optional {@code owner} (present and absent) and the
+ * int-keyed {@code picks} / {@code legacy} maps.
  */
 public class VillagerProfileCodecGameTest {
 
@@ -41,17 +40,12 @@ public class VillagerProfileCodecGameTest {
         ServerLevel level = helper.getLevel();
         RegistryOps<Tag> ops = level.registryAccess().createSerializationContext(NbtOps.INSTANCE);
 
-        // 1) A fully-populated profile: owner present, picks at two levels (including a synthetic
-        //    book key), legacy offers at two non-contiguous levels.
+        // 1) Fully populated: owner, picks at two levels (one a synthetic book key), legacy offers
+        //    at two non-contiguous levels.
         UUID id = UUID.randomUUID();
         UUID owner = UUID.randomUUID();
 
-        // NOTE: the synthetic book key uses the legacy lowercase form (no "/L<n>" suffix). The
-        // headless gametest server validates Identifiers more strictly than the live game and
-        // rejects the uppercase 'L' that real per-level book keys carry (audit #5: that key works
-        // in the running game, it's only headless MC that's strict). The codec stores Identifier
-        // strings verbatim, so case doesn't change what this exercises — round-tripping a book-style
-        // pick. Don't reintroduce an uppercase-L key here; it can't be constructed in a gametest.
+        // The codec stores Identifier strings verbatim, so the book key's shape doesn't matter here.
         Map<Integer, List<TradeKey>> picks = new HashMap<>();
         picks.put(1, List.of(
                 new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_wheat_for_emerald")),
@@ -69,8 +63,7 @@ public class VillagerProfileCodecGameTest {
         VillagerProfile full = new VillagerProfile(id, "minecraft:librarian", Optional.of(owner), picks, legacy);
         assertRoundTrips(helper, ops, full, "full profile");
 
-        // 2) A grandfathered profile with NO owner and no legacy — exercises the optional/empty
-        //    field paths so an ownerless save still decodes to an empty owner (not a crash).
+        // 2) No owner and no legacy: an ownerless save must decode to an empty owner.
         Map<Integer, List<TradeKey>> picksOnly = new HashMap<>();
         picksOnly.put(1, List.of(new TradeKey(Identifier.fromNamespaceAndPath("minecraft", "farmer_potato_for_emerald"))));
         VillagerProfile ownerless = new VillagerProfile(
@@ -82,15 +75,9 @@ public class VillagerProfileCodecGameTest {
     }
 
     /**
-     * Issue #13: {@link VillagerProfile#CODEC}'s level maps are keyed by a hand-parsed string
-     * ("1", "2", ...). A hand-edited save (or a bad write, or a future format change) can leave
-     * a key that isn't a valid integer. Naively building the level map with a key codec over
-     * {@code Integer::parseInt} would throw mid-decode and fail the WHOLE profile over one bad
-     * key. The profile's level-map codec instead parses each entry individually, drops (and
-     * logs) only the offending one, and lets every valid level load.
-     *
-     * Confirms this by hand-corrupting an encoded profile's picks map with a bogus level key
-     * before decoding.
+     * #13: a level key that isn't a valid integer (hand-edited or corrupted save) must be dropped
+     * and logged, not fail the whole profile decode. Confirmed by adding a bogus level key to an
+     * encoded picks map.
      */
     @GameTest
     public void malformedLevelKeyIsSkippedNotFatal(GameTestHelper helper) {
@@ -106,8 +93,7 @@ public class VillagerProfileCodecGameTest {
         Tag encoded = VillagerProfile.CODEC.encodeStart(ops, profile).getOrThrow();
         CompoundTag root = (CompoundTag) encoded;
         CompoundTag picksTag = root.getCompound("picks").orElseThrow();
-        // Copy a real level's entry under a key that Integer.parseInt can't handle — simulates
-        // a hand-edited or corrupted save, not anything the mod itself would ever write.
+        // A key Integer.parseInt can't handle, as a hand-edited save might have.
         Tag levelOneEntry = picksTag.get("1");
         picksTag.put("not-a-level", levelOneEntry);
         root.put("picks", picksTag);
@@ -126,14 +112,9 @@ public class VillagerProfileCodecGameTest {
     }
 
     /**
-     * Pins the blast radius of a corrupt entry one level up, in {@link VillagerProfileState}'s
-     * list codec: a single unreadable profile in the saved list must not sink every OTHER
-     * villager's profile with it. The list codec decodes each element on its own and skips (with
-     * a log) any entry that doesn't parse as a VillagerProfile, instead of failing the list as a
-     * whole.
-     *
-     * Builds a raw NBT list with a valid profile, a garbage string entry, and another valid
-     * profile, and confirms both valid profiles come out the other side.
+     * One unreadable profile in {@link VillagerProfileState}'s saved list must not sink the others:
+     * the list codec decodes each element on its own and skips bad ones. Uses a raw NBT list of
+     * valid profile, garbage string, valid profile.
      */
     @GameTest
     public void oneCorruptProfileDoesNotSinkTheList(GameTestHelper helper) {

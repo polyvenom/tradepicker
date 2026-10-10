@@ -16,28 +16,18 @@ import net.minecraft.world.item.trading.TradeSet;
 import java.util.List;
 
 /**
- * Game tests that run inside a real (headless) Minecraft server, so results reflect
- * ACTUAL runtime behaviour — unlike a fabric-loader-junit unit test, this environment
- * cannot diverge from how the live game validates and builds data.
+ * Game tests run inside a real headless Minecraft server, registered via the
+ * {@code fabric-gametest} entrypoint in this source set's fabric.mod.json.
  *
- * Registered via the {@code fabric-gametest} entrypoint in this source set's
- * fabric.mod.json. Run with: {@code ./gradlew runGametest}
- *
- * NOTE (book enumeration is intentionally not covered here yet): in vanilla 26.1.2 the
- * librarian book trades are biome-specific variants (emerald_and_book_<biome>_enchanted_book
- * ×7) that return a null preview offer for a synthetically-spawned villager, so they don't
- * expand in this headless world even with VillagerType set. The live modpack instead exposes
- * a single non-biome emerald_and_book_enchanted_book trade (per the server log), which is why
- * books work in-game. Reproducing book expansion in a gametest needs the villager placed in a
- * world whose biome actually activates a variant — tracked as a follow-up.
+ * Book enumeration isn't covered: the librarian's biome-specific book trades return a null
+ * preview for a synthetically spawned villager, so they don't expand here even with VillagerType
+ * set. It would need a villager placed in a world whose biome activates a variant.
  */
 public class OfferFactoryGameTest {
 
     /**
-     * Core enumeration smoke test: a farmer's level-1 pool must turn into a non-empty
-     * list of AvailableTrades, each with a valid (non-empty) preview offer. Farmer
-     * trades are flat — no enchantment or biome gating — so this reliably exercises the
-     * trade-set -> picker-card pipeline against real Minecraft data.
+     * Enumeration smoke test: a farmer's level-1 pool must yield non-empty AvailableTrades with
+     * non-empty previews. Farmer trades are flat (no enchantment or biome gating).
      */
     @GameTest
     public void farmerLevelOneEnumeratesTrades(GameTestHelper helper) {

@@ -16,17 +16,15 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
 /**
- * Guards the gate that decides when a right-click is handed back to vanilla instead of opening
- * the picker ({@link ProfileController#leaveToVanilla}, and its item rule
+ * Guards the gate that hands a right-click back to vanilla instead of opening the picker
+ * ({@link ProfileController#leaveToVanilla} and its item rule
  * {@link ProfileController#isVanillaItemInteraction}).
  *
- * The rule has to match Mob.checkAndHandleImportantInteractions exactly. Too narrow and villagers
- * can't be named (the CurseForge report that prompted this); too wide and the click falls through
- * to vanilla's own merchant screen, which must never be reachable — the picker owns this
- * villager's trades and vanilla's random rolls would compete with them.
- *
- * The two easy-to-miss cases are the unnamed name tag and the wrong-mob spawn egg: vanilla does
- * nothing for either and drops straight into the trade screen, so neither may pass.
+ * The rule must match Mob.checkAndHandleImportantInteractions exactly. Too narrow and villagers
+ * can't be named; too wide and the click reaches vanilla's merchant screen, whose random rolls
+ * would compete with the picker's trades. The easy-to-miss cases are the unnamed name tag and
+ * the wrong-mob spawn egg: vanilla does nothing for either and falls into the trade screen, so
+ * neither may pass.
  */
 public class VanillaInteractionGateGameTest {
 
@@ -77,8 +75,6 @@ public class VanillaInteractionGateGameTest {
         helper.succeed();
     }
 
-    // -------------------------------------------------------------------------
-
     /** An ordinary empty-hand click on a working adult villager is ours: it opens the picker. */
     @GameTest
     public void plainClickStaysWithThePicker(GameTestHelper helper) {
@@ -89,7 +85,7 @@ public class VanillaInteractionGateGameTest {
         helper.succeed();
     }
 
-    /** Vanilla refuses to trade with a baby or a sleeping villager, and so must the picker (issue #10). */
+    /** Vanilla refuses to trade with a baby or a sleeping villager, and so must the picker (#10). */
     @GameTest
     public void babiesAndSleepersAreLeftToVanilla(GameTestHelper helper) {
         ServerPlayer player = TestPlayers.near(helper);

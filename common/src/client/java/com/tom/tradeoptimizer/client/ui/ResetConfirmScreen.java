@@ -10,8 +10,7 @@ import net.minecraft.network.chat.Component;
 import java.util.UUID;
 
 /**
- * "Are you sure?" gate for the Reset button — wipes the villager's locked-in trades
- * and drops them back to Novice. Sends ResetVillagerC2S on confirm.
+ * Confirmation for the Reset button; sends ResetVillagerC2S on confirm.
  */
 public final class ResetConfirmScreen extends Screen {
 

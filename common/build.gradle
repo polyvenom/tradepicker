@@ -10,15 +10,13 @@ base {
 }
 
 neoForge {
-	// Vanilla Mojmapped Minecraft only — NO loader. This module holds the loader-agnostic
-	// logic. Its compiled jar is not shipped; each loader module recompiles common's SOURCE
-	// against its own Mojmapped Minecraft (source-sharing). This config exists so :common
-	// compiles/validates standalone and IDEs resolve net.minecraft.* types.
+	// Vanilla Mojmapped Minecraft, no loader. This jar is not shipped: each loader module
+	// recompiles common's source against its own Minecraft. This config lets :common compile
+	// standalone and IDEs resolve net.minecraft.* types.
 	neoFormVersion = project.neoform_version
 }
 
-// The shared mixins need the Mixin annotations to compile here. Compile-only: each loader
-// supplies its own Mixin runtime.
+// Compile-only Mixin annotations for the shared mixins; each loader supplies the runtime.
 repositories {
 	maven { url = "https://maven.fabricmc.net/" }
 }
@@ -26,17 +24,15 @@ dependencies {
 	compileOnly "net.fabricmc:sponge-mixin:0.17.4+mixin.0.8.7"
 }
 
-// Client-side shared code (UI, client networking seam) lives under src/client/java. NeoForm
-// provides the full client Minecraft, so :common compiles it in one pass. The loader modules
-// map this directory to their own client source set (Fabric) or single set (NeoForge).
+// Client-side shared code lives under src/client/java; NeoForm provides client Minecraft, so
+// :common compiles it in one pass. Fabric maps it to its client source set, NeoForge to main.
 sourceSets {
 	main {
 		java.srcDir 'src/client/java'
 	}
 }
 
-// Java 25 — both MC 26.1.2 loaders are Java 25 platforms (NeoForge 26.1.2's own runtime
-// stack, FancyModLoader/NeoForm, ships Java 25 bytecode), so the whole project is uniform 25.
+// Java 25: both loaders' runtime stacks ship Java 25 bytecode, so the whole project targets 25.
 tasks.withType(JavaCompile).configureEach {
 	it.options.release = 25
 }

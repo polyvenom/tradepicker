@@ -27,12 +27,11 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Issue #14: random-variant trades (suspicious stew effect, dyed-leather colour) were pinned to
- * their first roll by the min-price RandomSource. They now expand into one pickable card per
- * variant, and each card must regenerate to exactly what it shows.
+ * #14: random-variant trades (suspicious stew effect, dyed-leather colour) expand into one
+ * pickable card per variant, and each card must regenerate to exactly what it shows (the min-price
+ * RandomSource would otherwise pin them to the first roll).
  *
- * Farmer and leatherworker are untouched by trade_rebalance (always on in game tests), so these are
- * the vanilla templates.
+ * Farmer and leatherworker are untouched by trade_rebalance (always on in game tests).
  */
 public class VariantTradeGameTest {
 

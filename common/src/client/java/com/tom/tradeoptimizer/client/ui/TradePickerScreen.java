@@ -42,10 +42,7 @@ import java.util.Set;
  * Picker UI: lists every level-N trade for a villager as cards, lets the player pick
  * the required number (vanilla = 2), and ships the picks back to the server.
  *
- * Search: an EditBox above the grid filters cards in real time. Match is case-insensitive
- * and runs against the same tooltip text shown on hover, so typing "mending" surfaces just
- * the Mending Book card, "sharp" surfaces all five Sharpness levels, "emerald" surfaces
- * every emerald-buy trade, etc.
+ * The search box filters cards case-insensitively against the tooltip text shown on hover.
  */
 public final class TradePickerScreen extends Screen {
 
@@ -53,7 +50,7 @@ public final class TradePickerScreen extends Screen {
     private static final int CARD_HEIGHT = 24;
     private static final int CARD_GAP = 4;
     private static final int COLUMNS = 2;
-    private static final int TOP_PAD = 70; // raised to make room for the search box
+    private static final int TOP_PAD = 70;
     private static final int BOTTOM_RESERVED = 60;
     private static final int LABEL_RIGHT_PAD = 6;
     /** 3s — a submit that hasn't been answered by then was refused server-side. */
@@ -72,7 +69,7 @@ public final class TradePickerScreen extends Screen {
     /** Cards this villager already sells (earlier-level picks / legacy) — marked, still pickable. */
     private final Set<Integer> ownedIndices = new HashSet<>();
 
-    /** All indices into data.available() in display order: sorted by type (issue #7). */
+    /** All indices into data.available() in display order (see rebuildSortOrder). */
     private final List<Integer> sortedOrder = new ArrayList<>();
 
     /** Indices into data.available() filtered by current search text, in display order. */
@@ -86,10 +83,8 @@ public final class TradePickerScreen extends Screen {
     private String searchQuery = "";
 
     /**
-     * Set once Confirm is pressed. The screen deliberately stays up while the server works:
-     * closing to the world first meant the player watched the world for the network round-trip
-     * before the merchant (or the next level's picker) appeared — a blink on every confirm.
-     * Whatever the server opens next replaces this screen, so the transition is seamless.
+     * Set once Confirm is pressed. The screen stays up while the server works, and whatever the
+     * server opens next replaces it, so there is no blink back to the world.
      */
     private boolean submitted = false;
 
@@ -115,7 +110,6 @@ public final class TradePickerScreen extends Screen {
     protected void init() {
         super.init();
 
-        // Pre-compute display data once.
         fitCache.clear(); // widths change with GUI scale; also bounds growth
         cardLabels.clear();
         cardTooltips.clear();
@@ -146,7 +140,6 @@ public final class TradePickerScreen extends Screen {
         noMatchText = tr("tradeoptimizer.picker.no_match");
         rebuildStatusText();
 
-        // Search box (centered horizontally)
         int boxW = COLUMNS * CARD_WIDTH + (COLUMNS - 1) * CARD_GAP;
         int boxX = (this.width - boxW) / 2;
         searchBox = new EditBox(this.font, boxX, 44, boxW, 18, Component.translatable("tradeoptimizer.picker.search"));
@@ -170,19 +163,17 @@ public final class TradePickerScreen extends Screen {
                 .build();
         addRenderableWidget(cancelBtn);
 
-        // init() runs again on every resize or GUI-scale change, and the selection survives it.
-        // The buttons must agree with it: Confirm went dark while the status still read "2/2" (#18).
+        // init() reruns on resize / GUI-scale change and the selection survives it, so the buttons
+        // must be re-synced to it (#18).
         confirmBtn.active = !submitted && selectedIndices.size() == data.picksRequired();
         cancelBtn.active = !submitted;
         if (submitted) statusText = tr("tradeoptimizer.picker.applying");
     }
 
     /**
-     * Default sort by type (issue #7): plain trades first, enchanted cards (books + enchanted
-     * gear — the big expanded walls) after them; within each group by result item, then by the
-     * lead enchantment / potion registry id, then by its numeric level, then by pool order as
-     * the stable tie. Keys come from the data, never from the (localized) labels. Only the
-     * DISPLAY order changes — selections and network picks still use pool indices.
+     * Display order (#7): plain trades first, then enchanted cards (books + gear); within each group
+     * by result item, lead enchantment / potion id, numeric level, then pool order. Keys come from
+     * the data, never the localized labels. Selections and network picks still use pool indices.
      */
     private void rebuildSortOrder() {
         sortedOrder.clear();
@@ -260,8 +251,7 @@ public final class TradePickerScreen extends Screen {
         for (int idx : selectedIndices) picks.add(data.available().get(idx).key());
         ClientServices.NETWORK.sendToServer(new PickerSubmitC2S(data.villagerId(), data.level(), picks));
 
-        // Hold the screen rather than dropping to the world. The server answers with the merchant
-        // or the next level's picker, and that replaces this screen directly.
+        // Hold the screen: the server's answer (merchant or next picker) replaces it directly.
         submitted = true;
         submittedTicks = 0;
         confirmBtn.active = false;
@@ -273,8 +263,7 @@ public final class TradePickerScreen extends Screen {
     public void tick() {
         super.tick();
         if (!submitted) return;
-        // The server can decline a submit (e.g. the book cap) and open nothing at all. Hand the
-        // screen back rather than leaving the player on a dead dialog they can only escape.
+        // The server can decline a submit (e.g. the book cap) and open nothing; hand the screen back.
         if (++submittedTicks > SUBMIT_TIMEOUT_TICKS) {
             submitted = false;
             confirmBtn.active = selectedIndices.size() == data.picksRequired();
@@ -390,7 +379,6 @@ public final class TradePickerScreen extends Screen {
             rightPad += 8;
         }
         if (owned) {
-            // Check mark at the card's right edge: this trade is already on the villager.
             g.text(this.font, "✔", x + CARD_WIDTH - 12, y + 9, 0xFF55CC55);
             rightPad += 12;
         }
@@ -585,8 +573,8 @@ public final class TradePickerScreen extends Screen {
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         if (scrollY != 0) {
-            // Always clamp, even when everything fits: a row left over from a smaller window must be
-            // scrollable back, or the view sticks showing only the trailing cards (#18).
+            // Always clamp, even when everything fits: a row left over from a smaller window must
+            // be scrollable back (#18).
             scrollRow = Math.max(0, Math.min(maxScroll(), scrollRow - (int) Math.signum(scrollY)));
             return true;
         }
@@ -597,8 +585,7 @@ public final class TradePickerScreen extends Screen {
         if (selectedIndices.contains(idx)) {
             selectedIndices.remove(idx);
         } else if (selectedIndices.size() < data.picksRequired()) {
-            // Vanilla book-limit mode: don't let books past the per-level cap. When the toggle is
-            // off, maxBookPicks == picksRequired so this never blocks anything.
+            // Book cap (maxBookPicks == picksRequired when vanillaBookLimits is off).
             if (isBookCard(idx) && selectedBookCount() >= data.maxBookPicks()) {
                 return;
             }

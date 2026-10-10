@@ -18,9 +18,8 @@ import java.util.UUID;
 public record PickerSubmitC2S(UUID villagerId, int level, List<TradeKey> picks) implements CustomPacketPayload {
 
     /**
-     * Hard cap on the pick count read off the wire. A legit picker submit is 2; this
-     * leaves generous headroom while preventing a crafted packet from claiming a huge
-     * count and forcing a multi-gigabyte ArrayList pre-allocation (server-crash DoS).
+     * Cap on the pick count read off the wire (a real submit is at most 2), so a crafted packet
+     * can't force a huge pre-allocation.
      */
     private static final int MAX_PICKS = 64;
 

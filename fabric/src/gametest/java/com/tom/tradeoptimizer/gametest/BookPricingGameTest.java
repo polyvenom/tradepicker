@@ -27,18 +27,17 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Issue #15: book prices under vanillaPricing, where each (villager, book) draws a seeded price.
+ * #15: book prices under vanillaPricing, where each (villager, book) draws a seeded price.
  *
- *  - The price a book card shows must be the price the villager then charges. Regeneration used to
- *    share one seeded stream across every template it tried, so rolls burnt by earlier attempts
- *    shifted the price the real template read.
- *  - Single-level enchantments (Mending, Silk Touch, curses...) must get a real price roll. The
- *    steering prefix assumed a level roll that Minecraft skips when min == max, so the spare slot
- *    was eaten by the price roll and pinned it to the minimum.
+ *  - The price a book card shows must be the price the villager charges (regeneration must not
+ *    share one seeded stream across templates).
+ *  - Single-level enchantments (Mending, Silk Touch, curses...) must get a real price roll: the
+ *    level roll is skipped when min == max, so the steering prefix must not leave a spare slot
+ *    for the price roll to eat.
  *
  * Librarians across every biome and rank. Game tests always run with trade_rebalance on (see
- * OwnershipGateGameTest), whose librarian pools differ by biome; the checks read what each card
- * actually sells, so they hold whatever the pool is.
+ * OwnershipGateGameTest) and its librarian pools differ by biome; the checks read what each card
+ * sells, so they hold whatever the pool is.
  */
 public class BookPricingGameTest {
     private static final List<ResourceKey<VillagerType>> TYPES = List.of(VillagerType.PLAINS, VillagerType.DESERT,
@@ -109,7 +108,7 @@ public class BookPricingGameTest {
         helper.assertTrue(!prices.isEmpty(), "no single-level enchanted book found in any librarian pool");
         List<String> problems = new ArrayList<>();
         prices.forEach((card, seen) -> {
-            // 8 villagers drawing from vanilla's 15-wide price range: one price for all of them means pinned.
+            // 8 villagers draw from vanilla's 15-wide price range; one price for all means pinned.
             if (seen.size() >= 6 && seen.stream().distinct().count() == 1) {
                 problems.add(card + ": every villager charges " + seen.get(0));
             }
@@ -117,7 +116,7 @@ public class BookPricingGameTest {
         report(helper, problems, prices.size() + " single-level book cards");
     }
 
-    /** Issue #16: every book card sells exactly the enchantment and level its key names. */
+    /** #16: every book card sells exactly the enchantment and level its key names. */
     @GameTest(maxTicks = 400)
     public void bookCardsSellWhatTheySay(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();

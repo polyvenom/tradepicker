@@ -26,20 +26,14 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Regression net for the playtest bug "picker skipped on level-up / mystery villager with
- * unpicked trades and no profile".
+ * Guards the profile re-key across conversion. Vanilla's Mob.convertTo discards the converting
+ * entity and spawns a new one without copying the UUID, and profiles are keyed by villager UUID.
+ * The cured villager keeps its offers (ZombieVillager.finishConversion copies those), so without
+ * the re-key (Fabric MOB_CONVERSION / NeoForge LivingConversionEvent.Post ->
+ * ProfileController.onMobConverted) the next right-click would import them as permanent legacy
+ * offers and never show the picker.
  *
- * Root cause: vanilla's Mob.convertTo DISCARDS the converting entity and spawns a brand-new
- * one — the UUID is never copied (ConversionType.SINGLE copies position/effects/team only;
- * confirmed against the decompiled 26.2 source). Profiles are keyed by villager UUID, so a
- * zombify→cure round trip used to orphan the profile: the cured villager kept its offers
- * (ZombieVillager.finishConversion copies those) but lost its picks/owner, and the next
- * right-click imported its own picked trades — plus any random vanilla level-up rolls — as
- * permanent "legacy" offers, never showing the picker again.
- *
- * The fix re-keys the profile on every conversion (Fabric MOB_CONVERSION / NeoForge
- * LivingConversionEvent.Post → ProfileController.onMobConverted), so this test drives vanilla's
- * real zombify and cure methods rather than simulating them.
+ * Drives vanilla's real zombify and cure methods rather than simulating them.
  */
 public class ConversionProfileGameTest {
 
@@ -50,21 +44,20 @@ public class ConversionProfileGameTest {
         UUID originalId = villager.getUUID();
         ServerPlayer player = TestPlayers.near(helper);
 
-        // Lock in level-1 picks through the real entry point (creates the owned profile).
+        // Lock in level-1 picks (creates the owned profile).
         List<TradeKey> picks = firstTwoPicks(level, villager, helper);
         ProfileController.onPickerSubmit(player, originalId, 1, picks);
 
         VillagerProfileState state = VillagerProfileState.get(level);
         helper.assertTrue(state.get(originalId) != null, "profile should exist after submit");
 
-        // Zombify through vanilla's own entry point (what a zombie killing the villager calls).
-        // The real callers matter: NeoForge posts LivingConversionEvent from them, not from
-        // Mob.convertTo. Produces a NEW entity with a NEW UUID.
+        // Zombify through vanilla's entry point (what a zombie killing the villager calls);
+        // NeoForge posts LivingConversionEvent from the real callers, not from Mob.convertTo.
         Zombie attacker = helper.spawnWithNoFreeWill(EntityType.ZOMBIE, new BlockPos(1, 2, 3));
         helper.assertTrue(attacker.convertVillagerToZombieVillager(level, villager),
                 "zombify conversion should succeed");
-        // Searched around the villager, not the test structure: NeoForge runs these tests on a
-        // 1-block structure, so helper.findOneEntity would look in the wrong place.
+        // Searched around the villager: NeoForge runs these tests on a 1-block structure, so
+        // helper.findOneEntity would look in the wrong place.
         ZombieVillager zombie = level.getEntitiesOfClass(ZombieVillager.class,
                 villager.getBoundingBox().inflate(1)).stream().findFirst().orElse(null);
         helper.assertTrue(zombie != null, "zombify conversion should produce a zombie villager");
@@ -76,8 +69,7 @@ public class ConversionProfileGameTest {
         helper.assertTrue(state.get(zombie.getUUID()) != null,
                 "profile must follow onto the zombie villager (parked while zombified)");
 
-        // Cure through ZombieVillager.finishConversion, what the cure timer runs when it ends.
-        // It's private, hence reflection.
+        // Cure through ZombieVillager.finishConversion (what the cure timer runs); private, so reflection.
         try {
             Method finish = ZombieVillager.class.getDeclaredMethod("finishConversion", ServerLevel.class);
             finish.setAccessible(true);

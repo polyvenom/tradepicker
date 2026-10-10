@@ -12,10 +12,8 @@ import net.minecraft.network.chat.Component;
 /**
  * Config screen for Trade Picker. Reachable from ModMenu (if installed).
  *
- * Note: the underlying config is server-authoritative (prices are computed
- * server-side). On singleplayer or a locally hosted server this screen edits
- * the config in place. On a remote dedicated server, the operator must edit
- * config/tradeoptimizer.json on the server directly.
+ * The config is server-authoritative: this screen edits it in singleplayer or a locally hosted
+ * server; on a remote dedicated server the operator edits config/tradeoptimizer.json.
  */
 public class TradePickerConfigScreen extends Screen {
 
@@ -68,7 +66,7 @@ public class TradePickerConfigScreen extends Screen {
                 .onValueChange((cb, v) -> TradeOptimizerConfig.get().setHidePickedTrades(v))
                 .build());
 
-        // Gear-enchant mode: cycles Single <-> Headline. (Combo builder ships in a later update.)
+        // Gear-enchant mode: cycles Single <-> Headline.
         this.addRenderableWidget(Button.builder(gearModeLabel(), btn -> {
                     GearEnchantMode next = TradeOptimizerConfig.get().gearEnchantMode() == GearEnchantMode.SINGLE
                             ? GearEnchantMode.HEADLINE : GearEnchantMode.SINGLE;

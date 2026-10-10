@@ -17,15 +17,12 @@ import java.util.UUID;
  *  villagerId       — the entity UUID to remember on the client side
  *  profession       — display string ("FARMER", "LIBRARIAN", etc.)
  *  level            — the merchant level being picked (1-5)
- *  picksRequired    — how many trades the player must select (vanilla = 2)
- *  maxBookPicks     — how many of those picks may be enchanted books. Equals picksRequired when
- *                     vanillaBookLimits is off (no effective limit); when on it's vanilla's
- *                     per-level book-trade count (usually 1), so the rest must be non-book trades.
+ *  picksRequired    — how many trades the player must select (at most 2)
+ *  maxBookPicks     — how many of those picks may be enchanted books; picksRequired when
+ *                     vanillaBookLimits is off
  *  available        — every possible trade for (profession, level) with min-cost preview
- *  ownedKeys        — keys within {@code available} that this villager ALREADY sells (picked at
- *                     an earlier level, or matching a legacy/imported offer). The client marks
- *                     those cards so the player doesn't re-pick a trade they have (issue #7).
- *                     Empty when the server already filtered them out (hidePickedTrades on).
+ *  ownedKeys        — keys within {@code available} the villager already sells (#7), which the
+ *                     client marks. Empty when the server filtered them out (hidePickedTrades).
  */
 public record OpenPickerS2C(
         UUID villagerId,
@@ -38,10 +35,8 @@ public record OpenPickerS2C(
 ) implements CustomPacketPayload {
 
     /**
-     * Upper bound on trade previews read off the wire. A librarian's full enchanted-book
-     * expansion is ~100-200 entries; 4096 is comfortably above any real pool while
-     * stopping a crafted/malicious server from forcing a huge ArrayList pre-allocation
-     * on the client.
+     * Upper bound on trade previews read off the wire: a librarian's full book expansion is
+     * ~100-200 entries, and a cap stops a malicious server forcing a huge pre-allocation.
      */
     private static final int MAX_TRADES = 4096;
 

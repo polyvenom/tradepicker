@@ -20,21 +20,18 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Guards the deterministic price seed — the property the "no reopen-to-reroll" promise rests on.
- *
- * When vanilla-pricing mode is on, each (villager, TradeKey) draws its price from
- * RandomSource.create(priceSeed(...)). If that seed weren't stable, the preview shown in the
- * picker would differ from the price actually applied, and a player could reopen the picker to
- * re-roll a cheaper price. This asserts, with that mode forced on, that:
- *   - generate() yields an identical price across repeated calls (stable across applies);
+ * Guards the deterministic price seed behind the "no reopen-to-reroll" promise. With vanilla
+ * pricing on, each (villager, TradeKey) draws its price from RandomSource.create(priceSeed(...));
+ * an unstable seed would let the preview differ from the applied price and let a player reopen
+ * the picker to re-roll. Asserts, with that mode forced on, that:
+ *   - generate() yields an identical price across repeated calls;
  *   - the applied price matches the picker's preview price; and
- *   - re-enumerating (a reopen) reproduces the exact same preview prices.
+ *   - re-enumerating (a reopen) reproduces the same preview prices.
  *
- * The default config is min-price mode, so the test flips vanillaPricing on for the duration and
- * restores it. Each gametest body runs atomically on the server thread, so the flip is contained.
- * Farmer trades are flat (no biome/book gating, and untouched by trade_rebalance, which game
- * tests always run with — see OwnershipGateGameTest) and several carry a randomized cost range,
- * so the seed path is genuinely exercised.
+ * The default is min-price mode, so the test flips vanillaPricing on and restores it (each
+ * gametest body runs atomically on the server thread). Farmer trades are flat, untouched by
+ * trade_rebalance (see OwnershipGateGameTest), and several have a randomized cost range, so the
+ * seed path is exercised.
  */
 public class PriceSeedGameTest {
 
@@ -55,9 +52,8 @@ public class PriceSeedGameTest {
 
         TradeOptimizerConfig cfg = TradeOptimizerConfig.get();
         boolean originalMode = cfg.vanillaPricing();
-        cfg.setVanillaPricing(true); // force the seeded price path (default is min-price)
+        cfg.setVanillaPricing(true);
         try {
-            // The picker's preview enumeration.
             List<AvailableTrade> first = OfferFactory.enumerate(level, villager, tradeSetKey);
             helper.assertTrue(!first.isEmpty(), "farmer level 1 should enumerate at least one trade");
 
@@ -79,8 +75,7 @@ public class PriceSeedGameTest {
                                 + " (this is the reopen-to-reroll guarantee)");
             }
 
-            // A re-enumeration simulates the player reopening the picker: every preview price must
-            // be byte-for-byte identical to the first time.
+            // Re-enumerating simulates reopening the picker: every preview price must be identical.
             List<AvailableTrade> second = OfferFactory.enumerate(level, villager, tradeSetKey);
             helper.assertTrue(second.size() == first.size(),
                     "re-enumeration changed the trade count (" + first.size() + " -> " + second.size() + ")");

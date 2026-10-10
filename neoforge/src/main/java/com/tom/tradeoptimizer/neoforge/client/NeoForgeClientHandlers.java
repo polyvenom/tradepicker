@@ -30,13 +30,12 @@ public final class NeoForgeClientHandlers {
             if (event.getTarget() instanceof Villager v) {
                 ClientLastVillager.set(v.getUUID());
             } else {
-                // Wandering Trader / anything else: clear so the Reset button can't target a
-                // villager the player clicked earlier.
+                // Wandering Trader or anything else: clear the Reset target.
                 ClientLastVillager.clear();
             }
         });
 
-        // A villager from another world or server is never the one a merchant screen belongs to (#18).
+        // A villager from another world or server never owns a merchant screen (#18).
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingIn event) -> ClientLastVillager.clear());
         NeoForge.EVENT_BUS.addListener((ClientPlayerNetworkEvent.LoggingOut event) -> ClientLastVillager.clear());
     }

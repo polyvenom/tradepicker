@@ -26,9 +26,8 @@ import java.util.UUID;
  * that rank's trades, and then it must move as part of the same submit.
  *
  * VillagerLevelUpMixin cancels vanilla's increaseMerchantCareer for managed villagers, so nothing
- * else in the game will ever raise the rank. If the grant in onPickerSubmit regressed, a villager
- * would sit at its old rank forever with the player's picks piling up on a level it never reached
- * — so the "rank actually rises" assertion below is the load-bearing one.
+ * else raises the rank: if the grant in onPickerSubmit regressed, a villager would stay at its old
+ * rank forever. The "rank actually rises" assertion is the load-bearing one.
  */
 public class LevelUpHoldGameTest {
 
@@ -72,8 +71,7 @@ public class LevelUpHoldGameTest {
         helper.assertValueEqual(villager.getVillagerData().level(), 1,
                 "rank after picking level 1");
 
-        // Bank the XP vanilla would have levelled on. The mixin holds the rank, so it only moves
-        // when the player picks for it.
+        // Bank the XP vanilla would level on; the mixin holds the rank until the player picks.
         villager.setVillagerXp(VillagerData.getMaxXpPerLevel(1));
         helper.assertValueEqual(villager.getVillagerData().level(), 1,
                 "rank while the level-up is held");
@@ -112,19 +110,14 @@ public class LevelUpHoldGameTest {
     }
 
     /**
-     * A rank with nothing to choose must still be granted.
+     * A rank with nothing to choose must still be granted. When a pool holds no more trades than
+     * must be picked, the mod fills it automatically, writing picks directly instead of through
+     * onPickerSubmit, so that path has to grant the rank itself (e.g. a librarian's single-trade
+     * master rank).
      *
-     * When a rank's pool holds no more trades than the player must pick, there is nothing to
-     * choose, so the mod fills it automatically — and that path writes its picks directly rather
-     * than going through onPickerSubmit. It used to skip the level grant entirely, and because
-     * vanilla's own level-up is cancelled for managed villagers, nothing else would ever raise
-     * the rank: the villager stopped levelling for good. Reported against a max-level librarian,
-     * whose master rank is a single trade.
-     *
-     * Farmer's master rank is the stable two-option pool here. Librarian's is a single trade in
-     * a normal game, which is where this was reported — but game tests always run with
-     * trade_rebalance on (see OwnershipGateGameTest), and that pack rewrites librarian, taking its
-     * master rank to 121 options. Farmer is one of the professions the pack doesn't touch.
+     * Farmer's master rank is the stable two-option pool here: game tests always run with
+     * trade_rebalance on (see OwnershipGateGameTest), which rewrites librarian's master rank to 121
+     * options.
      */
     @GameTest
     public void autoProgressedRankIsStillGranted(GameTestHelper helper) {
@@ -137,7 +130,7 @@ public class LevelUpHoldGameTest {
         for (int lvl = 1; lvl <= 4; lvl++) profile.setPicks(lvl, firstTwoPicks(level, villager, lvl, helper));
         VillagerProfileState.get(level).update(profile);
 
-        // Earn the master rank, then ask for its picker the way onInteract does.
+        // Earn the master rank, then request its picker as onInteract does.
         villager.setVillagerXp(VillagerData.getMaxXpPerLevel(4));
         helper.assertTrue(ProfileController.isDueToLevelUp(villager),
                 "precondition: the villager should be due for its master rank");
@@ -153,13 +146,9 @@ public class LevelUpHoldGameTest {
     }
 
     /**
-     * A villager left stuck by 1.5.0 must be rescued on its next right-click.
-     *
-     * 1.5.0's no-choice path saved the rank's picks but never granted the rank. So a player
-     * upgrading from it can have a villager in exactly this state: the rank's XP earned, its picks
-     * already stored, the rank itself never given. The picker treats a rank with stored picks as
-     * done, so without a rescue the villager would sit one rank short forever, with those picks
-     * never reaching its offer list (applyToVillager only walks levels up to the current rank).
+     * A villager with a rank's XP earned and picks stored but the rank never granted must be
+     * rescued on its next right-click. The picker treats stored picks as done, and applyToVillager
+     * only walks levels up to the current rank, so without a rescue it stays a rank short.
      */
     @GameTest
     public void villagerStuckByAnEarlierBuildIsRescued(GameTestHelper helper) {

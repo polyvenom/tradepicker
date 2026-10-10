@@ -16,14 +16,11 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 /**
  * NeoForge networking: payload registration (mod bus) plus the server-send seam.
  *
- * No large-payload registration (Fabric's registerLarge 2 MiB): NeoForge's GenericPacketSplitter
- * splits any oversized packet between two NeoForge peers on its own, and a realistic OpenPickerS2C
- * is a few hundred KB anyway. Payloads are registered optional() so a
- * client without the mod can still connect (matching the Fabric server-side behaviour); the
- * canSendOpenPicker gate then suppresses the picker for those clients.
+ * No large-payload registration (Fabric needs registerLarge): NeoForge's GenericPacketSplitter
+ * splits oversized packets between NeoForge peers. Payloads are registered optional() so a client
+ * without the mod can still connect; the canSendOpenPicker gate then suppresses the picker.
  *
- * Play-phase handlers run on the main thread by default, so they mutate game state directly —
- * the same assumption as the Fabric handlers.
+ * Play-phase handlers run on the main thread, so they mutate game state directly.
  */
 public final class NeoForgeNetwork implements INetwork {
 
@@ -37,8 +34,8 @@ public final class NeoForgeNetwork implements INetwork {
                 NeoForgeNetwork::handleReset);
     }
 
-    // Clientbound — opens the picker. The client-only body is in NeoForgeClientHandlers, which is
-    // never classloaded on a dedicated server (this handler is never invoked there).
+    // Clientbound: opens the picker. The client-only body is in NeoForgeClientHandlers, which a
+    // dedicated server never classloads.
     private static void handleOpenPicker(OpenPickerS2C payload, IPayloadContext context) {
         NeoForgeClientHandlers.openPicker(payload);
     }

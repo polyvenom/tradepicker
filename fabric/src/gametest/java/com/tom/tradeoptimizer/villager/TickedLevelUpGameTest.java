@@ -25,16 +25,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The level-up hold, checked against the game actually running rather than against its logic.
+ * The level-up hold, checked against the running game.
  *
  * Vanilla queues a level-up: the trade that crosses the XP bar arms a 40-tick timer, which only
- * drains while the villager isn't trading, and then calls increaseMerchantCareer. The other
- * level-up tests call the mod's methods directly; these arm the timer the way a real trade does
- * and let the server tick past it, so they fail if the mixin ever stops applying — a renamed
- * target, a changed signature, a refactor that drops it from the config.
+ * drains while the villager isn't trading, then calls increaseMerchantCareer. These tests arm the
+ * timer as a real trade does and tick the server past it, so they fail if the mixin stops applying
+ * (renamed target, changed signature, dropped from the config).
  *
- * The first test is the control. It proves the scenario really does level a villager in this
- * environment, which is what makes "the managed one didn't level" mean something.
+ * The first test is the control: it proves the scenario levels a villager here, which gives "the
+ * managed one didn't level" meaning.
  */
 public class TickedLevelUpGameTest {
 
@@ -76,14 +75,10 @@ public class TickedLevelUpGameTest {
     }
 
     /**
-     * Reset from the trade screen leaves the villager on Novice, even with a level-up queued by
-     * the last trade before the click. The Reset button lives on the merchant screen, so the
-     * villager is always mid-trade at that moment — which is exactly what freezes the timer long
-     * enough for it to survive into the reset.
-     *
-     * This was the parked fix/reset-levelup bug: the queued level-up fired two seconds after the
-     * reset and landed the villager on level 2, skipping its Novice picks for good. The level-up
-     * hold covers it without that branch's dedicated fix.
+     * Reset from the trade screen leaves the villager on Novice even with a level-up queued by the
+     * last trade. The Reset button lives on the merchant screen, so the villager is mid-trade,
+     * which freezes the timer long enough to survive into the reset; unheld, it would fire two
+     * seconds later and land the villager on level 2, skipping its Novice picks.
      */
     @GameTest(maxTicks = 200)
     public void resetStaysNoviceThroughAQueuedLevelUp(GameTestHelper helper) {
@@ -95,7 +90,7 @@ public class TickedLevelUpGameTest {
         stopTrading(player, villager);
         armQueuedLevelUp(villager, villager.getOffers().get(0));
 
-        // Back on the merchant screen, then Reset — the order a player actually does it in.
+        // Back on the merchant screen, then Reset.
         villager.setTradingPlayer(player);
         ProfileController.onReset(player, villager.getUUID());
         helper.assertValueEqual(villager.getVillagerData().level(), 1, "rank straight after reset");
@@ -110,8 +105,8 @@ public class TickedLevelUpGameTest {
     // -------------------------------------------------------------------------
 
     /**
-     * Arm vanilla's queued level-up the way a real trade does: sit on the XP bar, then notify the
-     * trade so rewardTradeXp schedules it. No trading player, so the timer is free to drain.
+     * Arm vanilla's queued level-up as a real trade does: sit on the XP bar, then notify the trade
+     * so rewardTradeXp schedules it. No trading player, so the timer drains.
      */
     private static void armQueuedLevelUp(Villager villager, MerchantOffer offer) {
         villager.setVillagerXp(VillagerData.getMaxXpPerLevel(villager.getVillagerData().level()));
